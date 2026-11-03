@@ -119,6 +119,31 @@ jobs:
               s = s[:pos] + addition + "\n" + s[pos:]
               p.write_text(s)
 
+          # Keep the requested scope narrow: only File > Open uses Android SAF.
+          # Save As, Export, pictures, fonts and other dialogs retain WordCraft's built-in picker.
+          p = Path("artcraft-android/lib/build-common.sh")
+          s = p.read_text()
+          old = (
+              "        file_dialog: Some(Box::new(move |request: wordcraft_ui_egui::FileDialogRequest| {\n"
+              "            saf_file_dialog(dialog_bridge.clone_ref(), Arc::clone(&dialog_state), request)\n"
+              "        })),\n"
+          )
+          new = (
+              "        file_dialog: Some(Box::new(move |request: wordcraft_ui_egui::FileDialogRequest| {\n"
+              "            if matches!(&request, wordcraft_ui_egui::FileDialogRequest::Open { purpose } if purpose == \"document\") {\n"
+              "                saf_file_dialog(dialog_bridge.clone_ref(), Arc::clone(&dialog_state), request)\n"
+              "            } else {\n"
+              "                let (tx, rx) = std::sync::mpsc::channel();\n"
+              "                let _ = tx.send(Err(\"Use WordCraft built-in picker for non-Open dialogs\".to_owned()));\n"
+              "                rx\n"
+              "            }\n"
+              "        })),\n"
+          )
+          if old in s:
+              s = s.replace(old, new, 1)
+              p.write_text(s)
+          elif new not in s:
+              raise SystemExit("Could not locate WordCraft SAF file_dialog recipe")
           # This Android-specific egui-winit fork predates the matching Winit IME event.
           p = Path("artcraft-android/vendor/egui-winit/src/lib.rs")
           s = p.read_text()
