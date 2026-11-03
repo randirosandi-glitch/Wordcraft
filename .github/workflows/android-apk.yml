@@ -99,40 +99,40 @@ jobs:
           # Add its constructor and exhaustive app-wide destructuring to WordCraft 0.15.
           p = Path("artcraft-android/lib/scrolling.sh")
           s = p.read_text()
-          marker = "\\nif fixed:\\n"
+          marker = "\nif fixed:\n"
           addition = '''
           if app == "wordcraft":
               if fix(
                   "crates/ui-egui/src/app.rs",
-                  "            comment_drafts: Default::default(),\\n",
-                  "            comment_drafts: Default::default(),\\n            request_ime_hide: false,\\n",
+                  "            comment_drafts: Default::default(),\n",
+                  "            comment_drafts: Default::default(),\n            request_ime_hide: false,\n",
               ):
                   fixed.append("crates/ui-egui/src/app.rs (initialize keyboard-hide request)")
               if fix(
                   "crates/ui-egui/src/window_ui.rs",
-                  "            comment_drafts: _,\\n",
-                  "            comment_drafts: _,\\n            request_ime_hide: _,\\n",
+                  "            comment_drafts: _,\n",
+                  "            comment_drafts: _,\n            request_ime_hide: _,\n",
               ):
                   fixed.append("crates/ui-egui/src/window_ui.rs (classify keyboard-hide request)")
           '''
           if "initialize keyboard-hide request" not in s:
               if s.count(marker) != 1:
                   raise SystemExit("Could not locate the final ArtCraft scrolling-patch output block")
-              s = s.replace(marker, "\\n" + addition + marker, 1)
+              s = s.replace(marker, "\n" + addition + marker, 1)
               p.write_text(s)
 
           # The Android-specific egui-winit fork predates the matching Winit IME event.
           p = Path("artcraft-android/vendor/egui-winit/src/lib.rs")
           s = p.read_text()
-          ignored = "            WindowEvent::ActivationTokenDone { .. }\\n"
+          ignored = "            WindowEvent::ActivationTokenDone { .. }\n"
           if "WindowEvent::ImeResetCompleted { .. }" not in s:
               if s.count(ignored) != 1:
                   raise SystemExit("Could not locate egui-winit ignored-window-event arm")
-              s = s.replace(ignored, ignored + "            | WindowEvent::ImeResetCompleted { .. }\\n", 1)
-              desc = '        WindowEvent::PanGesture { .. } => "WindowEvent::PanGesture",\\n'
+              s = s.replace(ignored, ignored + "            | WindowEvent::ImeResetCompleted { .. }\n", 1)
+              desc = '        WindowEvent::PanGesture { .. } => "WindowEvent::PanGesture",\n'
               if s.count(desc) != 1:
                   raise SystemExit("Could not locate egui-winit event-description arm")
-              s = s.replace(desc, desc + '        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",\\n', 1)
+              s = s.replace(desc, desc + '        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",\n', 1)
               p.write_text(s)
           PY
 
