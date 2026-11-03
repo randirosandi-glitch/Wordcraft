@@ -88,6 +88,53 @@ jobs:
           grep -q 'reset_ime_with_request' artcraft-android/vendor/winit/src/window.rs
           grep -q 'reset_ime_with_request' artcraft-android/vendor/winit/src/platform_impl/android/mod.rs
 
+      - name: Patch Android compatibility against WordCraft 0.15
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          # The pinned ArtCraft scrolling patch adds request_ime_hide to WordApp.
+          # Keep its constructor and exhaustive window swap in sync with that field.
+          p = Path("artcraft-android/lib/scrolling.sh")
+          s = p.read_text()
+          anchor = '    if fixed:\\n        print(f"  Added two-finger-scroll patches to {title}: {\', \'.join(fixed)}")'
+          addition = '''
+              if fix(
+                  "crates/ui-egui/src/app.rs",
+                  "            comment_drafts: Default::default(),\\n",
+                  "            comment_drafts: Default::default(),\\n            request_ime_hide: false,\\n",
+              ):
+                  fixed.append("crates/ui-egui/src/app.rs (initialize keyboard-hide request)")
+              if fix(
+                  "crates/ui-egui/src/window_ui.rs",
+                  "            comment_drafts: _,\\n",
+                  "            comment_drafts: _,\\n            request_ime_hide: _,\\n",
+              ):
+                  fixed.append("crates/ui-egui/src/window_ui.rs (classify keyboard-hide request)")
+          '''
+          if "initialize keyboard-hide request" not in s:
+              if anchor not in s:
+                  raise SystemExit("Could not locate the end of the ArtCraft scrolling patch")
+              s = s.replace(anchor, addition + "\\n" + anchor, 1)
+              p.write_text(s)
+
+          # This Android-specific egui-winit fork predates the matching Winit IME event.
+          p = Path("artcraft-android/vendor/egui-winit/src/lib.rs")
+          s = p.read_text()
+          ignored = "            WindowEvent::ActivationTokenDone { .. }\\n"
+          if "WindowEvent::ImeResetCompleted { .. }" not in s:
+              if s.count(ignored) != 1:
+                  raise SystemExit("Could not locate egui-winit ignored-window-event arm")
+              s = s.replace(ignored, ignored + "            | WindowEvent::ImeResetCompleted { .. }\\n", 1)
+              desc = '        WindowEvent::PanGesture { .. } => "WindowEvent::PanGesture",\\n'
+              if s.count(desc) != 1:
+                  raise SystemExit("Could not locate egui-winit event-description arm")
+              s = s.replace(desc, desc + '        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",\\n', 1)
+              p.write_text(s)
+          PY
+
       - name: Build WordCraft with ArtCraft Android SAF integration
         shell: bash
         run: |
