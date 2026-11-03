@@ -27,6 +27,13 @@ jobs:
           ref: fbb4f66fcc868afdd8303d5227aa81db6a21d7fa
           path: artcraft-android
 
+      - name: Check out the egui-compatible Winit fork
+        uses: actions/checkout@v4
+        with:
+          repository: storytold/winit
+          ref: a517b3846ee8457d84ee4975110bfda6797c44dc
+          path: winit-fork
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -65,6 +72,24 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
+
+      - name: Align Winit with the egui IME API
+        shell: bash
+        run: |
+          set -euo pipefail
+          # egui commit 6d518fc requires the matching Storytold Winit fork.
+          # Keep ArtCraft's Android mouse/scroll backend while taking the
+          # matching upstream event and window APIs from that immutable fork.
+          android_backend="$RUNNER_TEMP/artcraft-winit-android"
+          cp -a artcraft-android/vendor/winit/src/platform_impl/android "$android_backend"
+          rm -rf artcraft-android/vendor/winit
+          mkdir -p artcraft-android/vendor/winit
+          cp -a winit-fork/. artcraft-android/vendor/winit/
+          rm -rf artcraft-android/vendor/winit/.git
+          rm -rf artcraft-android/vendor/winit/src/platform_impl/android
+          cp -a "$android_backend" artcraft-android/vendor/winit/src/platform_impl/android
+          grep -q 'ImeResetCompleted' artcraft-android/vendor/winit/src/event.rs
+          grep -q 'reset_ime_with_request' artcraft-android/vendor/winit/src/window.rs
 
       - name: Build WordCraft with ArtCraft Android SAF integration
         shell: bash
