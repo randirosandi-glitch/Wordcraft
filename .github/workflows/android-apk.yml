@@ -99,7 +99,16 @@ jobs:
           test -n "$apk"
           signed="$GITHUB_WORKSPACE/wordcraft-android-arm64.apk"
           cp "$apk" "$signed"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --min-sdk-version 26 --verbose "$signed"
+          # Re-sign explicitly with Android apksigner so the final APK has a valid
+          # v2/v3 signature (cargo-apk's intermediate signature is replaced).
+          aligned="$RUNNER_TEMP/wordcraft-aligned.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -f -p 4 "$apk" "$aligned"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
+            --ks "$key" --ks-key-alias wordcraft \
+            --ks-pass pass:android --key-pass pass:android \
+            --v1-signing-enabled true --v2-signing-enabled true --v3-signing-enabled true \
+            --out "$signed" "$aligned"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$signed"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$signed" | grep -E "package: name='ai.storyteller.wordcraft'|native-code:.*arm64-v8a"
 
       - name: Upload APK
