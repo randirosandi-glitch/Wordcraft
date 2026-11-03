@@ -1,0 +1,98 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/android-apk.yml"
+      - "README.md"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out this enhancement workspace
+        uses: actions/checkout@v4
+        with:
+          path: enhancement
+
+      - name: Check out Android port
+        uses: actions/checkout@v4
+        with:
+          repository: kanaaka/wordcraft-android
+          ref: main
+          path: android-port
+
+      - name: Check out pinned WordCraft upstream
+        uses: actions/checkout@v4
+        with:
+          repository: storytold/wordcraft
+          ref: 2ffba93b5189410a415970be179dcf481092d756
+          path: wordcraft
+
+      - name: Assemble Android workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd wordcraft
+          git apply --check ../android-port/patches/0001-wordcraft-android-port.patch
+          git apply ../android-port/patches/0001-wordcraft-android-port.patch
+          cp -a ../android-port/apps/wordcraft-android apps/
+          cp -a ../android-port/vendor .
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK components
+        shell: bash
+        run: |
+          sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install cargo-apk
+        run: cargo install cargo-apk --locked
+
+      - name: Build APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          key="$RUNNER_TEMP/wordcraft-ci.keystore"
+          keytool -genkeypair -v \
+            -keystore "$key" \
+            -alias wordcraft \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=WordCraft CI, O=WordCraft Enhanced, C=ID"
+          cd wordcraft
+          CARGO_APK_RELEASE_KEYSTORE="$key" \
+          CARGO_APK_RELEASE_KEYSTORE_PASSWORD=android \
+            cargo apk build --release -p wordcraft-android
+          apk="$(find target -type f -name '*.apk' -print -quit)"
+          test -n "$apk"
+          cp "$apk" "$GITHUB_WORKSPACE/wordcraft-android-arm64.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$GITHUB_WORKSPACE/wordcraft-android-arm64.apk"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$GITHUB_WORKSPACE/wordcraft-android-arm64.apk" | grep -E "package: name='ai.storyteller.wordcraft'|native-code:.*arm64-v8a"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: wordcraft-android-arm64
+          path: wordcraft-android-arm64.apk
+          if-no-files-found: error
+          retention-days: 14
