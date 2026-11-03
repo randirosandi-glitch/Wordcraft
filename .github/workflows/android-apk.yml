@@ -90,21 +90,18 @@ jobs:
             -keyalg RSA -keysize 2048 -validity 10000 \
             -storepass android -keypass android \
             -dname "CN=WordCraft CI, O=WordCraft Enhanced, C=ID"
+          # cargo-apk signs release builds itself; provide its documented profile-specific inputs.
+          export CARGO_APK_RELEASE_KEYSTORE="$key"
+          export CARGO_APK_RELEASE_KEYSTORE_PASSWORD=android
           cd wordcraft
           cargo apk build --release -p wordcraft-android
           apk="$(find target -type f -name '*.apk' -print -quit)"
           test -n "$apk"
-          unsigned="$RUNNER_TEMP/wordcraft-unsigned.apk"
-          cp "$apk" "$unsigned"
           signed="$GITHUB_WORKSPACE/wordcraft-android-arm64.apk"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" sign \
-            --ks "$key" \
-            --ks-key-alias wordcraft \
-            --ks-pass pass:android \
-            --key-pass pass:android \
-            --out "$signed" "$unsigned"
+          cp "$apk" "$signed"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$signed"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$signed" | grep -E "package: name='ai.storyteller.wordcraft'|native-code:.*arm64-v8a"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
