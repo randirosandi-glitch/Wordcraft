@@ -78,18 +78,15 @@ jobs:
         run: |
           set -euo pipefail
           # egui commit 6d518fc requires the matching Storytold Winit fork.
-          # Keep ArtCraft's Android mouse/scroll backend while taking the
-          # matching upstream event and window APIs from that immutable fork.
-          android_backend="$RUNNER_TEMP/artcraft-winit-android"
-          cp -a artcraft-android/vendor/winit/src/platform_impl/android "$android_backend"
+          # Use the complete matching Winit fork, including its Android backend.
+          # The ArtCraft Android backend predates the IME reset API required by egui.
           rm -rf artcraft-android/vendor/winit
           mkdir -p artcraft-android/vendor/winit
           cp -a winit-fork/. artcraft-android/vendor/winit/
           rm -rf artcraft-android/vendor/winit/.git
-          rm -rf artcraft-android/vendor/winit/src/platform_impl/android
-          cp -a "$android_backend" artcraft-android/vendor/winit/src/platform_impl/android
           grep -q 'ImeResetCompleted' artcraft-android/vendor/winit/src/event.rs
           grep -q 'reset_ime_with_request' artcraft-android/vendor/winit/src/window.rs
+          grep -q 'reset_ime_with_request' artcraft-android/vendor/winit/src/platform_impl/android/mod.rs
 
       - name: Build WordCraft with ArtCraft Android SAF integration
         shell: bash
