@@ -97,7 +97,7 @@ jobs:
 
           p = Path("artcraft-android/lib/scrolling.sh")
           s = p.read_text()
-          addition = '''
+          addition = r'''
           if app == "wordcraft":
               if fix(
                   "crates/ui-egui/src/app.rs",
