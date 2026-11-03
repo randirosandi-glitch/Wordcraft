@@ -95,12 +95,13 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          # The pinned ArtCraft scrolling patch adds request_ime_hide to WordApp.
-          # Keep its constructor and exhaustive window swap in sync with that field.
+          # ArtCraft's WordCraft scrolling patch adds an app-wide IME-hide flag.
+          # Add its constructor and exhaustive app-wide destructuring to WordCraft 0.15.
           p = Path("artcraft-android/lib/scrolling.sh")
           s = p.read_text()
-          anchor = '    if fixed:\\n        print(f"  Added two-finger-scroll patches to {title}: {\', \'.join(fixed)}")'
+          marker = "\\nif fixed:\\n"
           addition = '''
+          if app == "wordcraft":
               if fix(
                   "crates/ui-egui/src/app.rs",
                   "            comment_drafts: Default::default(),\\n",
@@ -115,12 +116,12 @@ jobs:
                   fixed.append("crates/ui-egui/src/window_ui.rs (classify keyboard-hide request)")
           '''
           if "initialize keyboard-hide request" not in s:
-              if anchor not in s:
-                  raise SystemExit("Could not locate the end of the ArtCraft scrolling patch")
-              s = s.replace(anchor, addition + "\\n" + anchor, 1)
+              if s.count(marker) != 1:
+                  raise SystemExit("Could not locate the final ArtCraft scrolling-patch output block")
+              s = s.replace(marker, "\\n" + addition + marker, 1)
               p.write_text(s)
 
-          # This Android-specific egui-winit fork predates the matching Winit IME event.
+          # The Android-specific egui-winit fork predates the matching Winit IME event.
           p = Path("artcraft-android/vendor/egui-winit/src/lib.rs")
           s = p.read_text()
           ignored = "            WindowEvent::ActivationTokenDone { .. }\\n"
