@@ -85,9 +85,9 @@ def integrate_android_icon_pack(builder: Path, source: Path) -> None:
     generator = builder / "lib" / "app_icons.py"
     generator_text = generator.read_text(encoding="utf-8")
     if "import shutil" not in generator_text:
-        if generator_text.count("import sys\\nfrom pathlib import Path") != 1:
+        if generator_text.count("import sys\nfrom pathlib import Path") != 1:
             raise SystemExit("Android icon generator: import anchor was not unique")
-        generator_text = generator_text.replace("import sys\\nfrom pathlib import Path", "import shutil\\nimport sys\\nfrom pathlib import Path", 1)
+        generator_text = generator_text.replace("import sys\nfrom pathlib import Path", "import shutil\nimport sys\nfrom pathlib import Path", 1)
         generator.write_text(generator_text, encoding="utf-8")
     old = "    Image, _ = _pillow()\n    source = pick_source(src, app, explicit)"
     new = '''    supplied = src / "assets" / "android-icon-pack" / "android" / "app" / "src" / "main" / "res"
