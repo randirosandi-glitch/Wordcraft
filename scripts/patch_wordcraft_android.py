@@ -178,6 +178,77 @@ def main() -> None:
         "Android IME cross-callback deduplication helpers",
     )
 
+    # Coalesce Android IME wake-ups. A single key can produce commit/preedit/finish
+    # callbacks, but the Rust bridge drains the entire queue in one frame. Waking the
+    # GameActivity looper for every callback floods its native key queue and adds input lag.
+    replace_once(
+        activity,
+        "import java.util.concurrent.TimeUnit;",
+        "import java.util.concurrent.TimeUnit;\\nimport java.util.concurrent.atomic.AtomicBoolean;",
+        "IME wake coalescing import",
+    )
+    replace_once(
+        activity,
+        '    private final ConcurrentLinkedQueue<String> imeEvents = new ConcurrentLinkedQueue<>();',
+        '    private final ConcurrentLinkedQueue<String> imeEvents = new ConcurrentLinkedQueue<>();\\n    private final AtomicBoolean imeWakePending = new AtomicBoolean(false);',
+        "IME wake coalescing state",
+    )
+    replace_once(
+        activity,
+        """    private void queueImeEvent(String event) {
+        imeEvents.offer(event);
+        try {
+            super.onKeyDown(
+                    KeyEvent.KEYCODE_UNKNOWN,
+                    new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_UNKNOWN));
+            super.onKeyUp(
+                    KeyEvent.KEYCODE_UNKNOWN,
+                    new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_UNKNOWN));
+        } catch (Throwable error) {
+            Log.w(TAG, "Could not wake the native loop for a keyboard event", error);
+        }
+    }""",
+        """    private void wakeImeLoop() {
+        try {
+            super.onKeyDown(
+                    KeyEvent.KEYCODE_UNKNOWN,
+                    new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_UNKNOWN));
+            super.onKeyUp(
+                    KeyEvent.KEYCODE_UNKNOWN,
+                    new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_UNKNOWN));
+        } catch (Throwable error) {
+            Log.w(TAG, "Could not wake the native loop for a keyboard event", error);
+        }
+    }
+
+    private void queueImeEvent(String event) {
+        imeEvents.offer(event);
+        if (imeWakePending.compareAndSet(false, true)) {
+            wakeImeLoop();
+        }
+    }""",
+        "coalesce Android IME native-loop wake-ups",
+    )
+    replace_once(
+        activity,
+        """    public String imePoll() {
+        return imeEvents.poll();
+    }""",
+        """    public String imePoll() {
+        String event = imeEvents.poll();
+        if (event == null) {
+            // Close the enqueue/poll race: if a producer added an event while the wake flag
+            // was still set, arrange one fresh wake after clearing it.
+            imeWakePending.set(false);
+            if (!imeEvents.isEmpty() && imeWakePending.compareAndSet(false, true)) {
+                wakeImeLoop();
+            }
+        }
+        return event;
+    }""",
+        "race-safe IME wake reset",
+    )
+
     # The Android shell must not synthesize ordinary clipboard events for
     # Ctrl+Shift+C/V: WordCraft already binds those exact chords to Copy/Paste Formatting.
     replace_once(
@@ -394,7 +465,7 @@ def main() -> None:
     replace_once(
         common,
         'GENERATOR_VERSION = "61"',
-        'GENERATOR_VERSION = "63"',
+        'GENERATOR_VERSION = "64"',
         "launcher generator version",
     )
 
@@ -645,6 +716,8 @@ def main() -> None:
             'claimImeSpace("commit")',
             'claimImeEnter("action")',
             "event.getKeyCode() == KeyEvent.KEYCODE_SPACE",
+            "imeWakePending.compareAndSet(false, true)",
+            "private void wakeImeLoop()",
         ),
         "Android physical editing-key deduplication",
     )
