@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 WORDCRAFT_COMMIT = "b47079fc791595fd84bb499d64dcd3f0624ef35a"
@@ -28,6 +30,87 @@ def require(path: Path, needles: tuple[str, ...], label: str) -> None:
     missing = [needle for needle in needles if needle not in text]
     if missing:
         raise SystemExit(f"{label}: post-patch verification failed in {path}: {missing!r}")
+
+
+def integrate_android_icon_pack(builder: Path, source: Path) -> None:
+    """Install the user-supplied, pre-rendered Android icon resources into ArtCraft's generator."""
+    archive = builder.parent / "assets" / "android-icon-pack" / "wc.zip"
+    if not archive.is_file():
+        raise SystemExit(f"Required Android icon archive is missing: {archive}")
+
+    destination = source / "assets" / "android-icon-pack"
+    if destination.exists():
+        shutil.rmtree(destination)
+    destination.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive) as bundle:
+        for member in bundle.infolist():
+            target = (destination / member.filename).resolve()
+            if not target.is_relative_to(destination.resolve()):
+                raise SystemExit(f"Unsafe path in Android icon archive: {member.filename}")
+            if member.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with bundle.open(member) as src_file, target.open("wb") as dst_file:
+                    shutil.copyfileobj(src_file, dst_file)
+
+    resource_root = destination / "android" / "app" / "src" / "main" / "res"
+    required = (
+        resource_root / "mipmap-mdpi" / "ic_launcher.png",
+        resource_root / "mipmap-xxxhdpi" / "ic_launcher.png",
+        resource_root / "mipmap-anydpi-v26" / "ic_launcher.xml",
+        resource_root / "mipmap-anydpi-v26" / "ic_launcher_round.xml",
+        resource_root / "drawable" / "ic_launcher_monochrome.png",
+        resource_root / "values" / "colors.xml",
+        destination / "play-store-icon-512.png",
+    )
+    missing = [str(path.relative_to(destination)) for path in required if not path.is_file()]
+    if missing:
+        raise SystemExit(f"Android icon archive is incomplete; missing: {missing}")
+
+    # Android 13+ themed icons need an explicit monochrome layer. The supplied archive
+    # includes the glyph PNG; wire it into both adaptive-icon definitions.
+    for xml_name in ("ic_launcher.xml", "ic_launcher_round.xml"):
+        xml = resource_root / "mipmap-anydpi-v26" / xml_name
+        content = xml.read_text(encoding="utf-8")
+        if "<monochrome " not in content:
+            content = content.replace(
+                "</adaptive-icon>",
+                '    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />\\n</adaptive-icon>',
+            )
+            xml.write_text(content, encoding="utf-8")
+
+    # ArtCraft normally regenerates icons from a single raster/vector. For WordCraft,
+    # preserve the supplied, density-specific resources byte-for-byte instead.
+    generator = builder / "lib" / "app_icons.py"
+    old = '    Image, _ = _pillow()\\n    source = pick_source(src, app, explicit)'
+    new = '''    supplied = src / "assets" / "android-icon-pack" / "android" / "app" / "src" / "main" / "res"\\n    if supplied.is_dir():\\n        res_dir.mkdir(parents=True, exist_ok=True)\\n        for item in supplied.iterdir():\\n            target = res_dir / item.name\\n            if target.is_dir():\\n                shutil.rmtree(target)\\n            elif target.exists():\\n                target.unlink()\\n            if item.is_dir():\\n                shutil.copytree(item, target)\\n            else:\\n                shutil.copy2(item, target)\\n        return src / "assets" / "android-icon-pack" / "play-store-icon-512.png"\\n\\n    Image, _ = _pillow()\\n    source = pick_source(src, app, explicit)'''
+    text = generator.read_text(encoding="utf-8")
+    if new not in text:
+        if text.count(old) != 1:
+            raise SystemExit("Android icon generator: expected exactly one generate() insertion point")
+        generator.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+    # Expose the round adaptive resource to Android launchers that query roundIcon.
+    common = builder / "lib" / "build-common.sh"
+    common_text = common.read_text(encoding="utf-8")
+    old_icon = 'icon = "@mipmap/ic_launcher"'
+    new_icon = old_icon + '\\nround_icon = "@mipmap/ic_launcher_round"'
+    if new_icon not in common_text:
+        if common_text.count(old_icon) != 1:
+            raise SystemExit("Android roundIcon: expected exactly one launcher metadata anchor")
+        common.write_text(common_text.replace(old_icon, new_icon, 1), encoding="utf-8")
+
+    android_project = builder / "lib" / "android_project.py"
+    project_text = android_project.read_text(encoding="utf-8")
+    old_attrs = '(("label", "android:label"), ("theme", "android:theme"), ("icon", "android:icon"))'
+    new_attrs = '(("label", "android:label"), ("theme", "android:theme"), ("icon", "android:icon"), ("round_icon", "android:roundIcon"))'
+    if new_attrs not in project_text:
+        if project_text.count(old_attrs) != 1:
+            raise SystemExit("Android roundIcon manifest: expected exactly one attribute list")
+        android_project.write_text(project_text.replace(old_attrs, new_attrs, 1), encoding="utf-8")
+
+    print("Integrated supplied Android launcher resources (all densities, adaptive, round, monochrome).")
 
 
 def main() -> None:
@@ -965,6 +1048,8 @@ fn handle_primary_pointer(
         ),
         "Android system font catalog",
     )
+    integrate_android_icon_pack(builder, source)
+
     print(
         "Applied and verified WordCraft Android compatibility patches "
         f"against {WORDCRAFT_COMMIT}."
