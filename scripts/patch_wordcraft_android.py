@@ -632,6 +632,7 @@ def main() -> None:
 }
 
 fn handle_primary_pointer(
+""",
         "WordCraft two-finger scroll gesture guard",
     )
     replace_once(
@@ -808,6 +809,14 @@ fn handle_primary_pointer(
             "if !app.canvas.surrendered_focus",
         ),
         "WordCraft canvas IME integration",
+    )
+    require(
+        canvas,
+        (
+            "fn touch_gesture_active(ui: &Ui) -> bool",
+            "app.canvas.cancel_text_drag();",
+        ),
+        "WordCraft two-finger scroll gesture guard",
     )
 
     # Android GameActivity only buffers X/Y axes by default. Enable the two scroll axes,
