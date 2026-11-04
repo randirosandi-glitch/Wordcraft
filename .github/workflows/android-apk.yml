@@ -73,8 +73,11 @@ jobs:
           needle = 'WindowEvent::PanGesture { .. } => "WindowEvent::PanGesture",'
           if s.count(needle) != 1:
               raise SystemExit("Expected egui-winit event-description match was not found exactly once")
-          s = s.replace(needle, needle + '\\n        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",', 1)
+          s = s.replace(needle, needle + chr(10) + '        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",', 1)
           p.write_text(s)
+          # Guard against writing the two-character escape sequence into Rust source.
+          if r'\\n        WindowEvent::ImeResetCompleted' in p.read_text():
+              raise SystemExit("Literal \\n remained in Rust source")
           PY
 
           # The old optional scrolling patch targets a pre-refactor WordApp initializer.
