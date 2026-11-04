@@ -34,7 +34,7 @@ def require(path: Path, needles: tuple[str, ...], label: str) -> None:
 
 def integrate_android_icon_pack(builder: Path, source: Path) -> None:
     """Install the user-supplied, pre-rendered Android icon resources into ArtCraft's generator."""
-    archive = builder.parent / "assets" / "android-icon-pack" / "wc.zip"
+    archive = builder.parent / "workspace" / "assets" / "android-icon-pack" / "wc.zip"
     if not archive.is_file():
         raise SystemExit(f"Required Android icon archive is missing: {archive}")
 
