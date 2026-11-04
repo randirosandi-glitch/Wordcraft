@@ -474,12 +474,12 @@ def main() -> None:
     replace_once(
         common,
         '''        if has_raw_hook:
-            inner_hook = "let _ = ctx;\n        self.inner.raw_input_hook(raw);"''',
+            inner_hook = "let _ = ctx;\\n        self.inner.raw_input_hook(raw);"''',
         '''        if has_raw_hook:
             if app == "wordcraft":
                 inner_hook = "self.inner.raw_input_hook(ctx, raw);"
             else:
-                inner_hook = "let _ = ctx;\n        self.inner.raw_input_hook(raw);"''',
+                inner_hook = "let _ = ctx;\\n        self.inner.raw_input_hook(raw);"''',
         "WordCraft raw_input_hook adapter",
     )
 
