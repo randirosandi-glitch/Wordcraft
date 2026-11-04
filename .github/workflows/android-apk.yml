@@ -40,6 +40,68 @@ jobs:
           ref: fbb4f66fcc868afdd8303d5227aa81db6a21d7fa
           path: artcraft-android
 
+      - name: Align ArtCraft Winit with WordCraft egui 0.37
+        shell: bash
+        working-directory: artcraft-android
+        run: |
+          set -euo pipefail
+
+          # WordCraft's pinned egui 0.37 fork requires the matching Winit fork.
+          # ArtCraft's stock Winit is 0.30.13 without the ordered IME-reset API.
+          tmp="$(mktemp -d)"
+          git clone --filter=blob:none https://github.com/storytold/winit.git "$tmp/winit"
+          git -C "$tmp/winit" checkout --detach a517b3846ee8457d84ee4975110bfda6797c44dc
+          test "$(git -C "$tmp/winit" rev-parse HEAD)" = "a517b3846ee8457d84ee4975110bfda6797c44dc"
+          rm -rf vendor/winit
+          cp -a "$tmp/winit" vendor/winit
+          rm -rf "$tmp"
+
+          # The builder's Android clipboard bridge is retained. Its egui-winit 0.36
+          # adapter must explicitly ignore the new Winit IME-reset fence event.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("vendor/egui-winit/src/lib.rs")
+          s = p.read_text()
+          old = '''            WindowEvent::ActivationTokenDone { .. }
+                      | WindowEvent::AxisMotion { .. }
+                      | WindowEvent::DoubleTapGesture { .. } => EventResponse {'''
+          new = '''            WindowEvent::ActivationTokenDone { .. }
+                      | WindowEvent::AxisMotion { .. }
+                      | WindowEvent::DoubleTapGesture { .. }
+                      | WindowEvent::ImeResetCompleted { .. } => EventResponse {'''
+          if s.count(old) != 1:
+              raise SystemExit("Expected egui-winit ignore-event match was not found exactly once")
+          s = s.replace(old, new, 1)
+          old = '''        WindowEvent::PanGesture { .. } => "WindowEvent::PanGesture",
+          }'''
+          new = '''        WindowEvent::PanGesture { .. } => "WindowEvent::PanGesture",
+              WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",
+          }'''
+          if s.count(old) != 1:
+              raise SystemExit("Expected egui-winit event-description match was not found exactly once")
+          p.write_text(s.replace(old, new, 1))
+          PY
+
+          # The old two-finger-scroll source patch targets a pre-refactor WordApp
+          # initializer and adds a field that current WordCraft no longer initializes.
+          # Skip that optional gesture patch for WordCraft; physical keyboard and SAF
+          # integrations remain enabled.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("lib/build-common.sh")
+          s = p.read_text()
+          old = 'bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"'
+          new = 'if [[ "$APP" != "wordcraft" ]]; then\n    bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"\nfi'
+          if s.count(old) != 1:
+              raise SystemExit("Expected scrolling hook was not found exactly once")
+          p.write_text(s.replace(old, new, 1))
+          PY
+
+          # Fail early if any of the required compatibility symbols are absent.
+          grep -q 'ImeResetCompleted' vendor/winit/src/event.rs
+          grep -q 'reset_ime_with_request' vendor/winit/src/window.rs
+          grep -q 'ImeResetCompleted' vendor/egui-winit/src/lib.rs
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
