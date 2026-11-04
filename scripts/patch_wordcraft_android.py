@@ -125,8 +125,8 @@ def main() -> None:
         // begins a fresh gesture, so the set resets to just that finger; a finger already in the
         // set is another finger of the gesture in progress and is added. Two or more means
         // multi-touch. A lifted finger is dropped, so a gesture that ends can never leave the set
-        // (and the pointer suppression) stuck on. See gesture_touch_ids for why both a reset on
-        // Started and a prune on Ended are needed.
+        // (and the pointer suppression) stuck on. See \x60gesture_touch_ids\x60 for why both a reset on
+        // \x60Started\x60 and a prune on \x60Ended\x60 are needed.
         match touch.phase {
             winit::event::TouchPhase::Started => {
                 if !self.gesture_touch_ids.contains(&touch.id) {
