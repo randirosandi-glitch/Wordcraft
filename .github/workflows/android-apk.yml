@@ -70,14 +70,11 @@ jobs:
           if s.count(old) != 1:
               raise SystemExit("Expected egui-winit ignore-event match was not found exactly once")
           s = s.replace(old, new, 1)
-          old = '''        WindowEvent::PanGesture { .. } => "WindowEvent::PanGesture",
-          }'''
-          new = '''        WindowEvent::PanGesture { .. } => "WindowEvent::PanGesture",
-                  WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",
-          }'''
-          if s.count(old) != 1:
+          needle = 'WindowEvent::PanGesture { .. } => "WindowEvent::PanGesture",'
+          if s.count(needle) != 1:
               raise SystemExit("Expected egui-winit event-description match was not found exactly once")
-          p.write_text(s.replace(old, new, 1))
+          s = s.replace(needle, needle + '\\n        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",', 1)
+          p.write_text(s)
           PY
 
           # The old optional scrolling patch targets a pre-refactor WordApp initializer.
