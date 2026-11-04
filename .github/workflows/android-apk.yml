@@ -4,9 +4,6 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/android-apk.yml"
-      - "README.md"
 
 permissions:
   contents: read
@@ -19,7 +16,7 @@ jobs:
   build:
     name: Build WordCraft from ArtCraft Android
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       RUSTC_WRAPPER: ""
       CARGO_INCREMENTAL: "0"
@@ -40,22 +37,27 @@ jobs:
           ref: fbb4f66fcc868afdd8303d5227aa81db6a21d7fa
           path: artcraft-android
 
-      - name: Align ArtCraft Winit with WordCraft egui 0.37
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Align ArtCraft Winit with WordCraft's pinned fork
         shell: bash
         working-directory: artcraft-android
         run: |
           set -euo pipefail
-
-          # WordCraft's pinned egui 0.37 fork requires the matching Winit fork.
           tmp="$(mktemp -d)"
           git clone --filter=blob:none https://github.com/storytold/winit.git "$tmp/winit"
           git -C "$tmp/winit" checkout --detach a517b3846ee8457d84ee4975110bfda6797c44dc
           test "$(git -C "$tmp/winit" rev-parse HEAD)" = "a517b3846ee8457d84ee4975110bfda6797c44dc"
           rm -rf vendor/winit
-          cp -a "$tmp/winit" vendor/winit
+          mkdir -p vendor/winit
+          git -C "$tmp/winit" archive --format=tar HEAD | tar -xf - -C vendor/winit
           rm -rf "$tmp"
 
-          # Keep ArtCraft's JNI clipboard bridge; add handling for the new Winit event.
+          # ArtCraft's vendored egui-winit handles Android clipboard JNI; this adds the
+          # additional reset event exposed by WordCraft's pinned Winit fork.
           python3 - <<'PY'
           from pathlib import Path
           p = Path("vendor/egui-winit/src/lib.rs")
@@ -68,28 +70,25 @@ jobs:
                       | WindowEvent::DoubleTapGesture { .. }
                       | WindowEvent::ImeResetCompleted { .. } => EventResponse {'''
           if s.count(old) != 1:
-              raise SystemExit("Expected egui-winit ignore-event match was not found exactly once")
+              raise SystemExit("egui-winit ignored-event anchor was not unique")
           s = s.replace(old, new, 1)
           needle = 'WindowEvent::PanGesture { .. } => "WindowEvent::PanGesture",'
           if s.count(needle) != 1:
-              raise SystemExit("Expected egui-winit event-description match was not found exactly once")
+              raise SystemExit("egui-winit event-name anchor was not unique")
           s = s.replace(needle, needle + chr(10) + '        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",', 1)
           p.write_text(s)
-          # Guard against writing the two-character escape sequence into Rust source.
-          if r'\\n        WindowEvent::ImeResetCompleted' in p.read_text():
-              raise SystemExit("Literal \\n remained in Rust source")
           PY
 
-          # The old optional scrolling patch targets a pre-refactor WordApp initializer.
-          # Skip only that patch for WordCraft; keyboard and SAF integration remain enabled.
+          # The upstream scrolling script targets an older canvas layout. Its current-source
+          # equivalent is applied by the audited WordCraft patcher, so skip only this legacy step.
           python3 - <<'PY'
           from pathlib import Path
           p = Path("lib/build-common.sh")
           s = p.read_text()
           old = 'bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"'
-          new = 'if [[ "$APP" != "wordcraft" ]]; then\n    bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"\nfi'
+          new = 'if [[ "$APP" != "wordcraft" ]]; then' + chr(10) + '    bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"' + chr(10) + 'fi'
           if s.count(old) != 1:
-              raise SystemExit("Expected scrolling hook was not found exactly once")
+              raise SystemExit("legacy scrolling hook was not found exactly once")
           p.write_text(s.replace(old, new, 1))
           PY
 
@@ -97,15 +96,25 @@ jobs:
           grep -q 'reset_ime_with_request' vendor/winit/src/window.rs
           grep -q 'ImeResetCompleted' vendor/egui-winit/src/lib.rs
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Check out the exact WordCraft release source
+        shell: bash
+        working-directory: artcraft-android
+        run: |
+          set -euo pipefail
+          mkdir -p source
+          git clone --depth 1 --branch v0.15.0 https://github.com/storytold/wordcraft.git source/wordcraft
+          expected="b47079fc791595fd84bb499d64dcd3f0624ef35a"
+          actual="$(git -C source/wordcraft rev-parse HEAD)"
+          test "$actual" = "$expected"
+          python3 -m py_compile "$GITHUB_WORKSPACE/workspace/scripts/patch_wordcraft_android.py"
+          python3 "$GITHUB_WORKSPACE/workspace/scripts/patch_wordcraft_android.py" \
+            "$GITHUB_WORKSPACE/artcraft-android" \
+            "$GITHUB_WORKSPACE/artcraft-android/source/wordcraft"
+          git -C source/wordcraft diff --check
+          git diff --check
+          echo "Verified WordCraft source commit: $actual"
 
-      - name: Install ArtCraft build dependencies
-        run: python -m pip install --upgrade Pillow
-
-      - name: Set up Java 21
+      - name: Install Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -122,7 +131,7 @@ jobs:
           packages: |
             platform-tools
 
-      - name: Install Android SDK components
+      - name: Install Android SDK and NDK
         shell: bash
         run: |
           set -euo pipefail
@@ -132,42 +141,72 @@ jobs:
           echo "NDK_HOME=$ndk" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$ndk" >> "$GITHUB_ENV"
 
-      - name: Set up Rust for Android
+      - name: Set up Rust ARM64 target
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
 
-      - name: Build WordCraft using ArtCraft's native Android integration
+      - name: Install ArtCraft build dependency
+        run: python -m pip install --upgrade Pillow
+
+      - name: Build WordCraft Android APK
         shell: bash
         working-directory: artcraft-android
-        env:
-          BUILD_SOURCE: stable
         run: |
           set -euo pipefail
-          # Use ArtCraft's own pinned vendor patches, WordCraft launcher generation,
-          # SAF bridge, IME bridge, modifier-key handling and Android input integration.
-          # Do not overlay a different Winit/egui fork or apply local compatibility patches.
-          bash build.sh -wordcraft -stable -packagename=ai.storyteller.wordcraft
+          # The source is pinned and patched above. ArtCraft supplies the native Android
+          # launcher, keyboard/modifier adapter, IME bridge, SAF picker and signed APK packaging.
+          if bash build.sh -wordcraft -tag=v0.15.0 -packagename=ai.storyteller.wordcraft; then
+            build_status=0
+          else
+            build_status=$?
+          fi
+
+          generated="source/wordcraft/apps/wordcraft-android/src/lib.rs"
+          test -f "$generated"
+          grep -F 'self.inner.raw_input_hook(ctx, raw);' "$generated"
+          grep -F 'self.inner.request_ime_hide' "$generated"
+          grep -F 'apply_android_modifiers(&mut self.modifiers, raw);' "$generated"
+          grep -F 'self.handle_clipboard_shortcuts(raw);' "$generated"
+          grep -F 'ACTION_OPEN_DOCUMENT' templates/android/SafActivity.java
+          grep -F 'ACTION_CREATE_DOCUMENT' templates/android/SafActivity.java
+
+          if (( build_status != 0 )); then
+            exit "$build_status"
+          fi
+
           apk="$(find output -maxdepth 1 -type f -name 'wordcraft-*.apk' -print | sort -V | tail -n 1)"
           test -n "$apk"
           install -D "$apk" "$GITHUB_WORKSPACE/wordcraft-android-arm64.apk"
           sha256sum "$GITHUB_WORKSPACE/wordcraft-android-arm64.apk"
 
-      - name: Verify APK signature, package and architecture
+      - name: Verify signature, alignment, package ID and ARM64
         shell: bash
         run: |
           set -euo pipefail
           apk="$GITHUB_WORKSPACE/wordcraft-android-arm64.apk"
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -v 4 "$apk"
           badging="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk")"
           echo "$badging" | grep -F "package: name='ai.storyteller.wordcraft'"
           echo "$badging" | grep -F "arm64-v8a"
+          unzip -Z1 "$apk" | grep -Fx "lib/arm64-v8a/libwordcraft_android.so"
           unzip -tq "$apk"
+          sha256sum "$apk"
 
-      - name: Upload WordCraft APK
+      - name: Upload verified APK
         uses: actions/upload-artifact@v4
         with:
           name: wordcraft-artcraft-android-arm64
           path: wordcraft-android-arm64.apk
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wordcraft-android-build-logs
+          path: artcraft-android/logs/
+          if-no-files-found: warn
           retention-days: 14
