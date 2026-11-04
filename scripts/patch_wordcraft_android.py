@@ -79,6 +79,201 @@ def main() -> None:
         "preserve physical keyboard events through Android IME",
     )
 
+    # The Android shell must not synthesize ordinary clipboard events for
+    # Ctrl+Shift+C/V: WordCraft already binds those exact chords to Copy/Paste Formatting.
+    replace_once(
+        common,
+        '''            if not modifiers.command && !modifiers.ctrl {
+                continue;
+            }''',
+        '''            if (!modifiers.command && !modifiers.ctrl) || modifiers.shift || modifiers.alt {
+                continue;
+            }''',
+        "preserve WordCraft formatting clipboard shortcuts",
+    )
+
+    # egui-winit's previous Android touch tracker cleared the first finger whenever a
+    # second, distinct finger started, so the multi-touch branch could never be reached.
+    # Track all active fingers and synthesize MouseWheel events from the two-finger centroid.
+    egui_winit = builder / "vendor/egui-winit/src/lib.rs"
+    replace_once(
+        egui_winit,
+        '''    gesture_touch_ids: Vec<u64>,
+''',
+        '''    gesture_touch_ids: Vec<u64>,
+    /// Active Android touch positions for two-finger document scrolling.
+    gesture_touch_positions: Vec<(u64, egui::Pos2)>,
+    two_finger_scroll_last_centroid: Option<egui::Pos2>,
+    two_finger_scroll_active: bool,
+''',
+        "Android two-finger scroll state",
+    )
+    replace_once(
+        egui_winit,
+        '''            gesture_touch_ids: Vec::new(),
+''',
+        '''            gesture_touch_ids: Vec::new(),
+            gesture_touch_positions: Vec::new(),
+            two_finger_scroll_last_centroid: None,
+            two_finger_scroll_active: false,
+''',
+        "Android two-finger scroll initialization",
+    )
+    replace_once(
+        egui_winit,
+        '''        // Keep track of which fingers make up the current gesture. A finger we have not seen before
+        // begins a fresh gesture, so the set resets to just that finger; a finger already in the
+        // set is another finger of the gesture in progress and is added. Two or more means
+        // multi-touch. A lifted finger is dropped, so a gesture that ends can never leave the set
+        // (and the pointer suppression) stuck on. See gesture_touch_ids for why both a reset on
+        // Started and a prune on Ended are needed.
+        match touch.phase {
+            winit::event::TouchPhase::Started => {
+                if !self.gesture_touch_ids.contains(&touch.id) {
+                    self.gesture_touch_ids.clear();
+                }
+                self.gesture_touch_ids.push(touch.id);
+            }
+            winit::event::TouchPhase::Ended | winit::event::TouchPhase::Cancelled => {
+                self.gesture_touch_ids.retain(|id| *id != touch.id);
+            }
+            winit::event::TouchPhase::Moved => {}
+        }
+
+        // Emit touch event
+''',
+        '''        // Keep the active finger set until each finger lifts. A new finger joins the
+        // current gesture; it must not clear the first finger or multi-touch is never detected.
+        let pos = egui::pos2(
+            touch.location.x as f32 / pixels_per_point,
+            touch.location.y as f32 / pixels_per_point,
+        );
+        match touch.phase {
+            winit::event::TouchPhase::Started => {
+                if !self.gesture_touch_ids.contains(&touch.id) {
+                    self.gesture_touch_ids.push(touch.id);
+                }
+                if let Some((_, old_pos)) = self.gesture_touch_positions.iter_mut().find(|(id, _)| *id == touch.id) {
+                    *old_pos = pos;
+                } else {
+                    self.gesture_touch_positions.push((touch.id, pos));
+                }
+            }
+            winit::event::TouchPhase::Moved => {
+                if let Some((_, old_pos)) = self.gesture_touch_positions.iter_mut().find(|(id, _)| *id == touch.id) {
+                    *old_pos = pos;
+                }
+            }
+            winit::event::TouchPhase::Ended | winit::event::TouchPhase::Cancelled => {
+                self.gesture_touch_ids.retain(|id| *id != touch.id);
+                self.gesture_touch_positions.retain(|(id, _)| *id != touch.id);
+            }
+        }
+
+        // Emit touch event
+''',
+        "Android active touch tracking",
+    )
+    replace_once(
+        egui_winit,
+        '''            pos: egui::pos2(
+                touch.location.x as f32 / pixels_per_point,
+                touch.location.y as f32 / pixels_per_point,
+            ),
+''',
+        '''            pos,
+''',
+        "Android touch position reuse",
+    )
+    replace_once(
+        egui_winit,
+        '''        });
+
+        // A multi-finger gesture (two-finger scroll or pinch) must not also act on the pointer:
+''',
+        '''        });
+
+        // Turn the movement of two active fingers into a normal egui scroll-wheel stream.
+        // Use the centroid so both fingers contribute equally; the gesture never reaches the
+        // document as a text-selection drag or an accidental pinch zoom.
+        let active_positions = self
+            .gesture_touch_ids
+            .iter()
+            .take(2)
+            .filter_map(|id| self.gesture_touch_positions.iter().find(|(touch_id, _)| touch_id == id).map(|(_, p)| *p))
+            .collect::<Vec<_>>();
+        if active_positions.len() >= 2 {
+            let centroid = (active_positions[0].to_vec2() + active_positions[1].to_vec2()) * 0.5;
+            let centroid = egui::pos2(centroid.x, centroid.y);
+            if !self.two_finger_scroll_active {
+                self.two_finger_scroll_active = true;
+                self.two_finger_scroll_last_centroid = Some(centroid);
+                self.egui_input.events.push(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::Vec2::ZERO,
+                    phase: egui::TouchPhase::Start,
+                    modifiers: self.modifiers,
+                });
+            } else if let Some(previous) = self.two_finger_scroll_last_centroid {
+                let delta = centroid - previous;
+                if delta != egui::Vec2::ZERO {
+                    self.egui_input.events.push(egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta,
+                        phase: egui::TouchPhase::Move,
+                        modifiers: self.modifiers,
+                    });
+                }
+                self.two_finger_scroll_last_centroid = Some(centroid);
+            }
+        } else if self.two_finger_scroll_active {
+            self.two_finger_scroll_active = false;
+            self.two_finger_scroll_last_centroid = None;
+            self.egui_input.events.push(egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: egui::Vec2::ZERO,
+                phase: egui::TouchPhase::End,
+                modifiers: self.modifiers,
+            });
+        }
+
+        // A multi-finger gesture (two-finger scroll or pinch) must not also act on the pointer:
+''',
+        "Android two-finger scroll wheel synthesis",
+    )
+    replace_once(
+        egui_winit,
+        '''            if self.pointer_touch_id.is_some() {
+                self.pointer_touch_id = None;
+                self.on_mouse_button_input(
+                    winit::event::ElementState::Released,
+                    winit::event::MouseButton::Left,
+                );
+            }
+''',
+        '''            if let Some(pointer_id) = self.pointer_touch_id.take() {
+                let pointer_pos = self
+                    .gesture_touch_positions
+                    .iter()
+                    .find(|(id, _)| *id == pointer_id)
+                    .map(|(_, p)| *p)
+                    .unwrap_or(pos);
+                self.egui_input.events.push(egui::Event::Touch {
+                    device_id: egui::TouchDeviceId(egui::epaint::util::hash(touch.device_id)),
+                    id: egui::TouchId::from(pointer_id),
+                    phase: egui::TouchPhase::Cancel,
+                    pos: pointer_pos,
+                    force: None,
+                });
+                self.on_mouse_button_input(
+                    winit::event::ElementState::Released,
+                    winit::event::MouseButton::Left,
+                );
+            }
+''',
+        "cancel single-finger selection when two-finger scroll begins",
+    )
+
     # The generated launcher is kept in the source checkout. Bump its marker whenever its
     # generated Rust changes, so a reused checkout cannot keep an older incompatible wrapper.
     replace_once(
@@ -338,8 +533,20 @@ def main() -> None:
         "Android physical keyboard forwarding",
     )
     require(
+        egui_winit,
+        (
+            "gesture_touch_positions: Vec<(u64, egui::Pos2)>",
+            "two_finger_scroll_last_centroid: Option<egui::Pos2>",
+            "self.two_finger_scroll_active = true;",
+            "egui::Event::MouseWheel",
+            "egui::TouchPhase::Cancel",
+        ),
+        "Android two-finger touch scrolling",
+    )
+    require(
         common,
         (
+            "modifiers.shift || modifiers.alt",
             'GENERATOR_VERSION = "62"',
             "self.inner.raw_input_hook(ctx, raw);",
             'label: "Android print system".to_owned(),',
