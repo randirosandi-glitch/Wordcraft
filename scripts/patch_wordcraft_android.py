@@ -736,7 +736,7 @@ def main() -> None:
         common,
         (
             "modifiers.shift || modifiers.alt",
-            'GENERATOR_VERSION = "63"',
+            'GENERATOR_VERSION = "64"',
             "self.inner.raw_input_hook(ctx, raw);",
             'label: "Android print system".to_owned(),',
             "android_clipboard_set(&self.app, &text);",
