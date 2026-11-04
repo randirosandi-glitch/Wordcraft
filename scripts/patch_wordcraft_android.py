@@ -184,13 +184,13 @@ def main() -> None:
     replace_once(
         activity,
         "import java.util.concurrent.TimeUnit;",
-        "import java.util.concurrent.TimeUnit;\\nimport java.util.concurrent.atomic.AtomicBoolean;",
+        "import java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicBoolean;",
         "IME wake coalescing import",
     )
     replace_once(
         activity,
         '    private final ConcurrentLinkedQueue<String> imeEvents = new ConcurrentLinkedQueue<>();',
-        '    private final ConcurrentLinkedQueue<String> imeEvents = new ConcurrentLinkedQueue<>();\\n    private final AtomicBoolean imeWakePending = new AtomicBoolean(false);',
+        '    private final ConcurrentLinkedQueue<String> imeEvents = new ConcurrentLinkedQueue<>();\n    private final AtomicBoolean imeWakePending = new AtomicBoolean(false);',
         "IME wake coalescing state",
     )
     replace_once(
@@ -474,12 +474,12 @@ def main() -> None:
     replace_once(
         common,
         '''        if has_raw_hook:
-            inner_hook = "let _ = ctx;\\n        self.inner.raw_input_hook(raw);"''',
+            inner_hook = "let _ = ctx;\n        self.inner.raw_input_hook(raw);"''',
         '''        if has_raw_hook:
             if app == "wordcraft":
                 inner_hook = "self.inner.raw_input_hook(ctx, raw);"
             else:
-                inner_hook = "let _ = ctx;\\n        self.inner.raw_input_hook(raw);"''',
+                inner_hook = "let _ = ctx;\n        self.inner.raw_input_hook(raw);"''',
         "WordCraft raw_input_hook adapter",
     )
 
