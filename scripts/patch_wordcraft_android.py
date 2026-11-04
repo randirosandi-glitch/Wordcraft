@@ -60,10 +60,9 @@ def main() -> None:
 
     common = builder / "lib/build-common.sh"
 
-    # Physical hardware keys may be forwarded by Android's IME through sendKeyEvent().
-    # Only virtual-keyboard events synthesized by the IME should be marked for consumption
-    # by SafActivity.onKeyDown/onKeyUp. Otherwise arrows and modifier combinations can be
-    # swallowed before they reach GameActivity's native input queue and Winit.
+    # Android's InputConnection can report one physical key through both the IME bridge
+    # (commit/delete/editor action) and GameActivity's native key queue. Route handled
+    # editing keys through exactly one path, while leaving navigation/modifier keys native.
     activity = builder / "templates/android/SafActivity.java"
     replace_once(
         activity,
@@ -72,11 +71,106 @@ def main() -> None:
         """                            boolean physicalKeyboardEvent =
                                     event.getDeviceId() != android.view.KeyCharacterMap.VIRTUAL_KEYBOARD
                                     && event.isFromSource(android.view.InputDevice.SOURCE_KEYBOARD);
-                            if (!physicalKeyboardEvent) {
+                            boolean imeHandledPhysicalKey = physicalKeyboardEvent && (
+                                    event.getKeyCode() == KeyEvent.KEYCODE_DEL
+                                    || event.getKeyCode() == KeyEvent.KEYCODE_FORWARD_DEL
+                                    || event.getKeyCode() == KeyEvent.KEYCODE_ENTER
+                                    || event.getKeyCode() == KeyEvent.KEYCODE_SPACE);
+                            if (!physicalKeyboardEvent || imeHandledPhysicalKey) {
                                 imeKeySynthesized.add(event.getKeyCode());
                             }
                             return super.sendKeyEvent(event);""",
-        "preserve physical keyboard events through Android IME",
+        "deduplicate physical editing keys forwarded through Android IME",
+    )
+    replace_once(
+        activity,
+        """    private final java.util.Set<Integer> imeKeySynthesized = java.util.Collections.synchronizedSet(new java.util.HashSet<>());""",
+        """    private final java.util.Set<Integer> imeKeySynthesized = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+    // Space and Enter may each arrive through two different InputConnection callbacks for one
+    // physical press. Suppress only cross-callback pairs; repeated calls from the same source
+    // remain valid key repeats / deliberate rapid taps.
+    private static final long IME_TEXT_PAIR_MS = 50L;
+    private volatile long lastImeSpaceCommitAt = 0L;
+    private volatile long lastImeSpaceKeyAt = 0L;
+    private volatile long lastImeEnterActionAt = 0L;
+    private volatile long lastImeEnterKeyAt = 0L;""",
+        "Android IME cross-callback deduplication state",
+    )
+    replace_once(
+        activity,
+        """                            if (text != null && text.length() > 0) {
+                                queueImeEvent("c" + text);
+                            }""",
+        """                            if (text != null && text.length() > 0) {
+                                if (!" ".contentEquals(text) || claimImeSpace("commit")) {
+                                    queueImeEvent("c" + text);
+                                }
+                            }""",
+        "deduplicate IME space commits",
+    )
+    replace_once(
+        activity,
+        """                                } else if (code == KeyEvent.KEYCODE_ENTER) {
+                                    queueImeEvent("a6");
+                                }""",
+        """                                } else if (code == KeyEvent.KEYCODE_ENTER) {
+                                    if (claimImeEnter("key")) {
+                                        queueImeEvent("a6");
+                                    }
+                                } else if (code == KeyEvent.KEYCODE_SPACE
+                                        && event.getDeviceId() != android.view.KeyCharacterMap.VIRTUAL_KEYBOARD
+                                        && event.isFromSource(android.view.InputDevice.SOURCE_KEYBOARD)) {
+                                    if (claimImeSpace("key")) {
+                                        queueImeEvent("c ");
+                                    }
+                                }""",
+        "deduplicate physical space and Enter key events",
+    )
+    replace_once(
+        activity,
+        """                        public boolean performEditorAction(int actionCode) {
+                            queueImeEvent("a" + actionCode);
+                            return super.performEditorAction(actionCode);
+                        }""",
+        """                        public boolean performEditorAction(int actionCode) {
+                            if (claimImeEnter("action")) {
+                                queueImeEvent("a" + actionCode);
+                            }
+                            return super.performEditorAction(actionCode);
+                        }""",
+        "deduplicate Enter editor-action callbacks",
+    )
+    replace_once(
+        activity,
+        """    private boolean claimDelete(String method) {""",
+        """    private boolean claimImeSpace(String method) {
+        long now = android.os.SystemClock.uptimeMillis();
+        long lastOther = "commit".equals(method) ? lastImeSpaceKeyAt : lastImeSpaceCommitAt;
+        if (lastOther != 0L && now - lastOther < IME_TEXT_PAIR_MS) {
+            if ("commit".equals(method)) lastImeSpaceKeyAt = 0L;
+            else lastImeSpaceCommitAt = 0L;
+            return false;
+        }
+        if ("commit".equals(method)) lastImeSpaceCommitAt = now;
+        else lastImeSpaceKeyAt = now;
+        return true;
+    }
+
+    private boolean claimImeEnter(String method) {
+        long now = android.os.SystemClock.uptimeMillis();
+        long lastOther = "action".equals(method) ? lastImeEnterKeyAt : lastImeEnterActionAt;
+        if (lastOther != 0L && now - lastOther < IME_TEXT_PAIR_MS) {
+            if ("action".equals(method)) lastImeEnterKeyAt = 0L;
+            else lastImeEnterActionAt = 0L;
+            return false;
+        }
+        if ("action".equals(method)) lastImeEnterActionAt = now;
+        else lastImeEnterKeyAt = now;
+        return true;
+    }
+
+    private boolean claimDelete(String method) {""",
+        "Android IME cross-callback deduplication helpers",
     )
 
     # The Android shell must not synthesize ordinary clipboard events for
@@ -295,7 +389,7 @@ def main() -> None:
     replace_once(
         common,
         'GENERATOR_VERSION = "61"',
-        'GENERATOR_VERSION = "62"',
+        'GENERATOR_VERSION = "63"',
         "launcher generator version",
     )
 
@@ -542,11 +636,12 @@ def main() -> None:
         activity,
         (
             "boolean physicalKeyboardEvent =",
-            "event.getDeviceId() != android.view.KeyCharacterMap.VIRTUAL_KEYBOARD",
-            "event.isFromSource(android.view.InputDevice.SOURCE_KEYBOARD)",
-            "if (!physicalKeyboardEvent)",
+            "imeHandledPhysicalKey",
+            'claimImeSpace("commit")',
+            'claimImeEnter("action")',
+            "event.getKeyCode() == KeyEvent.KEYCODE_SPACE",
         ),
-        "Android physical keyboard forwarding",
+        "Android physical editing-key deduplication",
     )
     require(
         egui_winit,
