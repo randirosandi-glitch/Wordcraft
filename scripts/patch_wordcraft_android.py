@@ -616,6 +616,38 @@ def main() -> None:
 
     canvas = source / "crates/ui-egui/src/canvas.rs"
 
+    # A two-finger scroll cancels the first finger pointer touch in egui-winit.
+    # Treat that cancellation as gesture takeover: stop an existing text-selection
+    # drag and do not dispatch pointer editing while the gesture is active.
+    replace_once(
+        canvas,
+        "fn handle_primary_pointer(\n",
+        """fn touch_gesture_active(ui: &Ui) -> bool {
+    ui.input(|i| {
+        i.events.iter().any(|event| matches!(
+            event,
+            egui::Event::Touch { phase: egui::TouchPhase::Cancel, .. }
+        ))
+    })
+}
+
+fn handle_primary_pointer(
+        "WordCraft two-finger scroll gesture guard",
+    )
+    replace_once(
+        canvas,
+        """    if !middle_gesture && !crate::table_pen::pointer(app, ui, resp, rects, layout, geo.scale) {
+        mouse(app, ui, resp, rects, layout, geo.scale);
+    }""",
+        """    if touch_gesture_active(ui) {
+        // A second finger took over a drag that may already have started text selection.
+        app.canvas.cancel_text_drag();
+    } else if !middle_gesture && !crate::table_pen::pointer(app, ui, resp, rects, layout, geo.scale) {
+        mouse(app, ui, resp, rects, layout, geo.scale);
+    }""",
+        "cancel text selection when two-finger scrolling takes over",
+    )
+
     # Track a one-frame focus surrender separately from ordinary text-selection drags.
     replace_once(
         canvas,
@@ -767,6 +799,8 @@ def main() -> None:
         canvas,
         (
             "pub(crate) surrendered_focus: bool",
+            "fn touch_gesture_active(ui: &Ui) -> bool",
+            "app.canvas.cancel_text_drag();",
             "surrendered_focus: false,",
             "response.surrender_focus();",
             "app.request_ime_hide = true;",
@@ -776,6 +810,79 @@ def main() -> None:
         "WordCraft canvas IME integration",
     )
 
+    # Android GameActivity only buffers X/Y axes by default. Enable the two scroll axes,
+    # then translate ACTION_SCROLL into winit MouseWheel so trackpad/mouse scroll is not dropped.
+    android_winit = builder / "vendor/winit/src/platform_impl/android/mod.rs"
+    replace_once(
+        android_winit,
+        "use android_activity::input::{InputEvent, KeyAction, Keycode, MotionAction};",
+        "use android_activity::input::{Axis, InputEvent, KeyAction, Keycode, MotionAction};",
+        "Android trackpad scroll axis import",
+    )
+    replace_once(
+        android_winit,
+        "        let redraw_flag = SharedFlag::new();",
+        """        // GameActivity only buffers X/Y motion axes unless explicitly enabled.
+        // Trackpad and mouse scroll arrive on the Vscroll/Hscroll axes.
+        android_app.enable_motion_axis(Axis::Vscroll);
+        android_app.enable_motion_axis(Axis::Hscroll);
+        let redraw_flag = SharedFlag::new();""",
+        "enable Android trackpad scroll axes",
+    )
+    replace_once(
+        android_winit,
+        "                let phase = match motion_event.action() {",
+        """                if motion_event.action() == MotionAction::Scroll {
+                    // ACTION_SCROLL is Android generic mouse/trackpad scroll.
+                    // Keep fractional deltas so precision trackpads remain smooth.
+                    if motion_event.pointer_count() > 0 {
+                        let pointer = motion_event.pointer_at_index(0);
+                        let horizontal = pointer.axis_value(Axis::Hscroll);
+                        let vertical = pointer.axis_value(Axis::Vscroll);
+                        if horizontal.is_finite() && vertical.is_finite()
+                            && (horizontal != 0.0 || vertical != 0.0)
+                        {
+                            callback(
+                                event::Event::WindowEvent {
+                                    window_id,
+                                    event: event::WindowEvent::MouseWheel {
+                                        device_id,
+                                        delta: event::MouseScrollDelta::LineDelta(horizontal, vertical),
+                                        phase: event::TouchPhase::Moved,
+                                    },
+                                },
+                                self.window_target(),
+                            );
+                        }
+                    }
+                    input_status = InputStatus::Handled;
+                } else {
+                let phase = match motion_event.action() {""",
+        "Android ACTION_SCROLL to winit MouseWheel",
+    )
+    replace_once(
+        android_winit,
+        """                    }
+                }
+            },
+            InputEvent::KeyEvent(key) => {""",
+        """                    }
+                }
+                }
+            },
+            InputEvent::KeyEvent(key) => {""",
+        "close Android non-scroll motion branch",
+    )
+    require(
+        android_winit,
+        (
+            "android_app.enable_motion_axis(Axis::Vscroll);",
+            "android_app.enable_motion_axis(Axis::Hscroll);",
+            "motion_event.action() == MotionAction::Scroll",
+            "event::MouseScrollDelta::LineDelta(horizontal, vertical)",
+        ),
+        "Android trackpad scroll adapter",
+    )
     print(
         "Applied and verified WordCraft Android compatibility patches "
         f"against {WORDCRAFT_COMMIT}."
