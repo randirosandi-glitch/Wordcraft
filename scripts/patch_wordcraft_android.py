@@ -138,7 +138,7 @@ def main() -> None:
                             return super.performEditorAction(actionCode);
                         }""",
         """                        public boolean performEditorAction(int actionCode) {
-                            if (claimImeEnter("action")) {
+                            if (actionCode != 0 && claimImeEnter("action")) {
                                 queueImeEvent("a" + actionCode);
                             }
                             return super.performEditorAction(actionCode);
