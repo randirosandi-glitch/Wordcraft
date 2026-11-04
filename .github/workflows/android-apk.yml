@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build WordCraft Android
 
 on:
   workflow_dispatch:
@@ -11,46 +11,53 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: wordcraft-android-build
+  cancel-in-progress: true
+
 jobs:
   build:
+    name: Build WordCraft from ArtCraft Android
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      RUSTC_WRAPPER: ""
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+      CARGO_PROFILE_RELEASE_LTO: "thin"
+      CARGO_PROFILE_RELEASE_DEBUG: "false"
+
     steps:
-      - name: Check out this enhancement workspace
+      - name: Check out WordCraft build configuration
         uses: actions/checkout@v4
         with:
-          path: enhancement
+          path: workspace
 
-      - name: Check out ArtCraft Android integration
+      - name: Check out ArtCraft Android builder
         uses: actions/checkout@v4
         with:
           repository: MostafaXS1/artcraft-android
           ref: fbb4f66fcc868afdd8303d5227aa81db6a21d7fa
           path: artcraft-android
 
-      - name: Check out the egui-compatible Winit fork
-        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          repository: storytold/winit
-          ref: a517b3846ee8457d84ee4975110bfda6797c44dc
-          path: winit-fork
+          python-version: "3.12"
 
-      - name: Set up Java
+      - name: Install ArtCraft build dependencies
+        run: python -m pip install --upgrade Pillow
+
+      - name: Set up Java 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "21"
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-
-      - name: Install ArtCraft build dependencies
-        shell: bash
+      - name: Configure JDK for ArtCraft
         run: |
-          set -euo pipefail
-          python -m pip install --upgrade pip
-          python -m pip install Pillow
+          sudo mkdir -p /opt/jdk
+          sudo ln -s "$JAVA_HOME" /opt/jdk/temurin-21
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -65,125 +72,45 @@ jobs:
           sdkmanager "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018"
           ndk="$ANDROID_HOME/ndk/27.2.12479018"
           echo "ANDROID_NDK_HOME=$ndk" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ndk" >> "$GITHUB_ENV"
           echo "ANDROID_NDK_ROOT=$ndk" >> "$GITHUB_ENV"
-          echo "$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin" >> "$GITHUB_PATH"
 
-      - name: Set up Rust
+      - name: Set up Rust for Android
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
 
-      - name: Align Winit with the egui IME API
+      - name: Build WordCraft using ArtCraft's native Android integration
         shell: bash
+        working-directory: artcraft-android
+        env:
+          BUILD_SOURCE: stable
         run: |
           set -euo pipefail
-          # egui commit 6d518fc requires the matching Storytold Winit fork.
-          # Use the complete matching Winit fork, including its Android backend.
-          # The ArtCraft Android backend predates the IME reset API required by egui.
-          rm -rf artcraft-android/vendor/winit
-          mkdir -p artcraft-android/vendor/winit
-          cp -a winit-fork/. artcraft-android/vendor/winit/
-          rm -rf artcraft-android/vendor/winit/.git
-          grep -q 'ImeResetCompleted' artcraft-android/vendor/winit/src/event.rs
-          grep -q 'reset_ime_with_request' artcraft-android/vendor/winit/src/window.rs
-          grep -q 'reset_ime_with_request' artcraft-android/vendor/winit/src/platform_impl/android/mod.rs
-
-      - name: Patch Android compatibility against WordCraft 0.15
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          p = Path("artcraft-android/lib/scrolling.sh")
-          s = p.read_text()
-          addition = r'''
-          if app == "wordcraft":
-              if fix(
-                  "crates/ui-egui/src/app.rs",
-                  "            comment_drafts: Default::default(),\n",
-                  "            comment_drafts: Default::default(),\n            request_ime_hide: false,\n",
-              ):
-                  fixed.append("crates/ui-egui/src/app.rs (initialize keyboard-hide request)")
-              if fix(
-                  "crates/ui-egui/src/window_ui.rs",
-                  "            comment_drafts: _,\n",
-                  "            comment_drafts: _,\n            request_ime_hide: _,\n",
-              ):
-                  fixed.append("crates/ui-egui/src/window_ui.rs (classify keyboard-hide request)")
-          '''
-          if "initialize keyboard-hide request" not in s:
-              pos = s.rfind("if fixed:")
-              if pos < 0:
-                  raise SystemExit("Could not locate ArtCraft scrolling-patch output block")
-              s = s[:pos] + addition + "\n" + s[pos:]
-              p.write_text(s)
-
-          # Keep the requested scope narrow: only File > Open uses Android SAF.
-          # Save As, Export, pictures, fonts and other dialogs retain WordCraft's built-in picker.
-          p = Path("artcraft-android/lib/build-common.sh")
-          s = p.read_text()
-          old = (
-              "        file_dialog: Some(Box::new(move |request: wordcraft_ui_egui::FileDialogRequest| {\n"
-              "            saf_file_dialog(dialog_bridge.clone_ref(), Arc::clone(&dialog_state), request)\n"
-              "        })),\n"
-          )
-          new = (
-              "        file_dialog: Some(Box::new(move |request: wordcraft_ui_egui::FileDialogRequest| {\n"
-              "            if matches!(&request, wordcraft_ui_egui::FileDialogRequest::Open { purpose } if purpose == \"document\") {\n"
-              "                saf_file_dialog(dialog_bridge.clone_ref(), Arc::clone(&dialog_state), request)\n"
-              "            } else {\n"
-              "                let (tx, rx) = std::sync::mpsc::channel();\n"
-              "                let _ = tx.send(Err(\"Use WordCraft built-in picker for non-Open dialogs\".to_owned()));\n"
-              "                rx\n"
-              "            }\n"
-              "        })),\n"
-          )
-          if old in s:
-              s = s.replace(old, new, 1)
-              p.write_text(s)
-          elif new not in s:
-              raise SystemExit("Could not locate WordCraft SAF file_dialog recipe")
-          # This Android-specific egui-winit fork predates the matching Winit IME event.
-          p = Path("artcraft-android/vendor/egui-winit/src/lib.rs")
-          s = p.read_text()
-          ignored = "            WindowEvent::ActivationTokenDone { .. }\n"
-          if "WindowEvent::ImeResetCompleted { .. }" not in s:
-              if s.count(ignored) != 1:
-                  raise SystemExit("Could not locate egui-winit ignored-window-event arm")
-              s = s.replace(ignored, ignored + "            | WindowEvent::ImeResetCompleted { .. }\n", 1)
-              desc = '        WindowEvent::PanGesture { .. } => "WindowEvent::PanGesture",\n'
-              if s.count(desc) != 1:
-                  raise SystemExit("Could not locate egui-winit event-description arm")
-              s = s.replace(desc, desc + '        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",\n', 1)
-              p.write_text(s)
-          PY
-
-      - name: Build WordCraft with ArtCraft Android SAF integration
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd artcraft-android
-          # Keep the existing Android application ID so this remains the same app identity.
-          # CI signs with a fresh temporary key; uninstall the previous CI-signed build before installing.
-          bash build.sh -wordcraft -packagename=ai.storyteller.wordcraft
-          apk="$(find output -maxdepth 1 -type f -name 'wordcraft-*.apk' -print | sort | tail -n 1)"
+          # Use ArtCraft's own pinned vendor patches, WordCraft launcher generation,
+          # SAF bridge, IME bridge, modifier-key handling and Android input integration.
+          # Do not overlay a different Winit/egui fork or apply local compatibility patches.
+          bash build.sh -wordcraft -stable -packagename=ai.storyteller.wordcraft
+          apk="$(find output -maxdepth 1 -type f -name 'wordcraft-*.apk' -print | sort -V | tail -n 1)"
           test -n "$apk"
-          cp "$apk" "$GITHUB_WORKSPACE/wordcraft-android-arm64.apk"
+          install -D "$apk" "$GITHUB_WORKSPACE/wordcraft-android-arm64.apk"
           sha256sum "$GITHUB_WORKSPACE/wordcraft-android-arm64.apk"
 
-      - name: Verify APK package and native architecture
+      - name: Verify APK signature, package and architecture
         shell: bash
         run: |
           set -euo pipefail
           apk="$GITHUB_WORKSPACE/wordcraft-android-arm64.apk"
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose "$apk"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" | grep -E "package: name='ai.storyteller.wordcraft'|native-code:.*arm64-v8a"
+          badging="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk")"
+          echo "$badging" | grep -F "package: name='ai.storyteller.wordcraft'"
+          echo "$badging" | grep -F "arm64-v8a"
+          unzip -tq "$apk"
 
-      - name: Upload APK
+      - name: Upload WordCraft APK
         uses: actions/upload-artifact@v4
         with:
-          name: wordcraft-android-arm64-saf
+          name: wordcraft-artcraft-android-arm64
           path: wordcraft-android-arm64.apk
           if-no-files-found: error
           retention-days: 14
