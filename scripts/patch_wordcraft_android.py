@@ -60,6 +60,25 @@ def main() -> None:
 
     common = builder / "lib/build-common.sh"
 
+    # Physical hardware keys may be forwarded by Android's IME through sendKeyEvent().
+    # Only virtual-keyboard events synthesized by the IME should be marked for consumption
+    # by SafActivity.onKeyDown/onKeyUp. Otherwise arrows and modifier combinations can be
+    # swallowed before they reach GameActivity's native input queue and Winit.
+    activity = builder / "templates/android/SafActivity.java"
+    replace_once(
+        activity,
+        """                            imeKeySynthesized.add(event.getKeyCode());
+                            return super.sendKeyEvent(event);""",
+        """                            boolean physicalKeyboardEvent =
+                                    event.getDeviceId() != android.view.KeyCharacterMap.VIRTUAL_KEYBOARD
+                                    && event.isFromSource(android.view.InputDevice.SOURCE_KEYBOARD);
+                            if (!physicalKeyboardEvent) {
+                                imeKeySynthesized.add(event.getKeyCode());
+                            }
+                            return super.sendKeyEvent(event);""",
+        "preserve physical keyboard events through Android IME",
+    )
+
     # The generated launcher is kept in the source checkout. Bump its marker whenever its
     # generated Rust changes, so a reused checkout cannot keep an older incompatible wrapper.
     replace_once(
@@ -308,6 +327,16 @@ def main() -> None:
         "canvas IME observation guard",
     )
 
+    require(
+        activity,
+        (
+            "boolean physicalKeyboardEvent =",
+            "event.getDeviceId() != android.view.KeyCharacterMap.VIRTUAL_KEYBOARD",
+            "event.isFromSource(android.view.InputDevice.SOURCE_KEYBOARD)",
+            "if (!physicalKeyboardEvent)",
+        ),
+        "Android physical keyboard forwarding",
+    )
     require(
         common,
         (
