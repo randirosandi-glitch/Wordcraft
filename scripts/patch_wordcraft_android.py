@@ -76,15 +76,31 @@ def integrate_android_icon_pack(builder: Path, source: Path) -> None:
         if "<monochrome " not in content:
             content = content.replace(
                 "</adaptive-icon>",
-                '    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />\\n</adaptive-icon>',
+                '    <monochrome android:drawable="@drawable/ic_launcher_monochrome" />\n</adaptive-icon>',
             )
             xml.write_text(content, encoding="utf-8")
 
     # ArtCraft normally regenerates icons from a single raster/vector. For WordCraft,
     # preserve the supplied, density-specific resources byte-for-byte instead.
     generator = builder / "lib" / "app_icons.py"
-    old = '    Image, _ = _pillow()\\n    source = pick_source(src, app, explicit)'
-    new = '''    supplied = src / "assets" / "android-icon-pack" / "android" / "app" / "src" / "main" / "res"\\n    if supplied.is_dir():\\n        res_dir.mkdir(parents=True, exist_ok=True)\\n        for item in supplied.iterdir():\\n            target = res_dir / item.name\\n            if target.is_dir():\\n                shutil.rmtree(target)\\n            elif target.exists():\\n                target.unlink()\\n            if item.is_dir():\\n                shutil.copytree(item, target)\\n            else:\\n                shutil.copy2(item, target)\\n        return src / "assets" / "android-icon-pack" / "play-store-icon-512.png"\\n\\n    Image, _ = _pillow()\\n    source = pick_source(src, app, explicit)'''
+    old = "    Image, _ = _pillow()\n    source = pick_source(src, app, explicit)"
+    new = '''    supplied = src / "assets" / "android-icon-pack" / "android" / "app" / "src" / "main" / "res"
+    if supplied.is_dir():
+        res_dir.mkdir(parents=True, exist_ok=True)
+        for item in supplied.iterdir():
+            target = res_dir / item.name
+            if target.is_dir():
+                shutil.rmtree(target)
+            elif target.exists():
+                target.unlink()
+            if item.is_dir():
+                shutil.copytree(item, target)
+            else:
+                shutil.copy2(item, target)
+        return src / "assets" / "android-icon-pack" / "play-store-icon-512.png"
+
+    Image, _ = _pillow()
+    source = pick_source(src, app, explicit)'''
     text = generator.read_text(encoding="utf-8")
     if new not in text:
         if text.count(old) != 1:
@@ -95,7 +111,7 @@ def integrate_android_icon_pack(builder: Path, source: Path) -> None:
     common = builder / "lib" / "build-common.sh"
     common_text = common.read_text(encoding="utf-8")
     old_icon = 'icon = "@mipmap/ic_launcher"'
-    new_icon = old_icon + '\\nround_icon = "@mipmap/ic_launcher_round"'
+    new_icon = old_icon + '\nround_icon = "@mipmap/ic_launcher_round"'
     if new_icon not in common_text:
         if common_text.count(old_icon) != 1:
             raise SystemExit("Android roundIcon: expected exactly one launcher metadata anchor")
