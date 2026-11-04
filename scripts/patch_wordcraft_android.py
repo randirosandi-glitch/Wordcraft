@@ -197,6 +197,16 @@ def main() -> None:
         "WordApp IME-hide state",
     )
 
+    # The new Android IME-hide field is app-wide, so swap_window must explicitly
+    # leave it on the active WordApp rather than destructuring an incomplete pattern.
+    window_ui = source / "crates/ui-egui/src/window_ui.rs"
+    replace_once(
+        window_ui,
+        "            shown_document,\\n        } = self;",
+        "            shown_document,\\n            request_ime_hide: _,\\n        } = self;",
+        "WordApp window-swap IME field",
+    )
+
     wordapp_app = source / "crates/ui-egui/src/app.rs"
     replace_once(
         wordapp_app,
@@ -318,6 +328,11 @@ def main() -> None:
         wordapp_lib,
         ("pub request_ime_hide: bool",),
         "WordApp IME state",
+    )
+    require(
+        window_ui,
+        ("request_ime_hide: _,",),
+        "WordApp window-swap IME field",
     )
     require(
         wordapp_app,
