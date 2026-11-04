@@ -928,6 +928,43 @@ fn handle_primary_pointer(
         ),
         "Android trackpad scroll adapter",
     )
+
+    # Android is neither Linux desktop nor a typical Unix filesystem. The upstream
+    # system_font_dirs() fell through to /usr/share/fonts, which is absent on Android,
+    # so the font catalog could never enumerate Android's installed system families.
+    font_names = source / "crates/fonts/src/fontdb/names.rs"
+    replace_once(
+        font_names,
+        '''    if cfg!(target_os = "macos") {''',
+        '''    if cfg!(target_os = "android") {
+        // Read-only platform font directories exposed to ordinary Android applications.
+        // Include vendor/product partitions because OEMs often keep additional families there.
+        dirs.extend([
+            "/system/fonts",
+            "/system_ext/fonts",
+            "/product/fonts",
+            "/vendor/fonts",
+            "/odm/fonts",
+        ].map(Into::into));
+        if let Some(h) = &home {
+            dirs.push(h.join("fonts"));
+            dirs.push(h.join(".local/share/fonts"));
+        }
+    } else if cfg!(target_os = "macos") {''',
+        "Android system font catalog directories",
+    )
+    require(
+        font_names,
+        (
+            'if cfg!(target_os = "android")',
+            '"/system/fonts"',
+            '"/system_ext/fonts"',
+            '"/product/fonts"',
+            '"/vendor/fonts"',
+            '"/odm/fonts"',
+        ),
+        "Android system font catalog",
+    )
     print(
         "Applied and verified WordCraft Android compatibility patches "
         f"against {WORDCRAFT_COMMIT}."
