@@ -71,19 +71,17 @@ def main() -> None:
         """                            boolean physicalKeyboardEvent =
                                     event.getDeviceId() != android.view.KeyCharacterMap.VIRTUAL_KEYBOARD
                                     && event.isFromSource(android.view.InputDevice.SOURCE_KEYBOARD);
-                            boolean imeHandledPhysicalKey = physicalKeyboardEvent && (
-                                    event.getKeyCode() == KeyEvent.KEYCODE_DEL
-                                    || event.getKeyCode() == KeyEvent.KEYCODE_FORWARD_DEL
-                                    || event.getKeyCode() == KeyEvent.KEYCODE_ENTER
-                                    || event.getKeyCode() == KeyEvent.KEYCODE_SPACE);
-                            if (physicalKeyboardEvent && imeHandledPhysicalKey) {
-                                // The corresponding IME event was already queued above. Do not
-                                // forward this same physical key a second time into GameActivity.
-                                return true;
+                            if (physicalKeyboardEvent) {
+                                // Hardware keys belong to WordCraft's native key dispatcher.
+                                // Do not translate Backspace/Delete into IME DeleteSurrounding:
+                                // that IME operation intentionally does not join paragraph marks.
+                                // Forward the event to the host view; its onKeyDown/onKeyUp lets
+                                // physical keys fall through to GameActivity and winit.
+                                return super.sendKeyEvent(event);
                             }
-                            if (!physicalKeyboardEvent) {
-                                imeKeySynthesized.add(event.getKeyCode());
-                            }
+                            // Only virtual-IME synthesized keys are represented by queued IME
+                            // events. Consume their forwarded Android key pair to avoid duplicates.
+                            imeKeySynthesized.add(event.getKeyCode());
                             return super.sendKeyEvent(event);""",
         "deduplicate physical editing keys forwarded through Android IME",
     )
@@ -712,7 +710,9 @@ def main() -> None:
         activity,
         (
             "boolean physicalKeyboardEvent =",
-            "imeHandledPhysicalKey",
+            "if (physicalKeyboardEvent)",
+            "Hardware keys belong to WordCraft's native key dispatcher.",
+            "imeKeySynthesized.add(event.getKeyCode());",
             'claimImeSpace("commit")',
             'claimImeEnter("action")',
             "event.getKeyCode() == KeyEvent.KEYCODE_SPACE",
