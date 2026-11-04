@@ -715,7 +715,6 @@ def main() -> None:
             "imeKeySynthesized.add(event.getKeyCode());",
             'claimImeSpace("commit")',
             'claimImeEnter("action")',
-            "event.getKeyCode() == KeyEvent.KEYCODE_SPACE",
             "imeWakePending.compareAndSet(false, true)",
             "private void wakeImeLoop()",
         ),
