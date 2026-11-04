@@ -83,12 +83,12 @@ def main() -> None:
     # Ctrl+Shift+C/V: WordCraft already binds those exact chords to Copy/Paste Formatting.
     replace_once(
         common,
-        '''            if not modifiers.command && !modifiers.ctrl {
+        '''            if !modifiers.command && !modifiers.ctrl {{
                 continue;
-            }''',
-        '''            if (!modifiers.command && !modifiers.ctrl) || modifiers.shift || modifiers.alt {
+            }}''',
+        '''            if (!modifiers.command && !modifiers.ctrl) || modifiers.shift || modifiers.alt {{
                 continue;
-            }''',
+            }}''',
         "preserve WordCraft formatting clipboard shortcuts",
     )
 
@@ -235,6 +235,8 @@ def main() -> None:
                 phase: egui::TouchPhase::End,
                 modifiers: self.modifiers,
             });
+            self.pointer_pos_in_points = None;
+            self.egui_input.events.push(egui::Event::PointerGone);
         }
 
         // A multi-finger gesture (two-finger scroll or pinch) must not also act on the pointer:
@@ -274,6 +276,20 @@ def main() -> None:
         "cancel single-finger selection when two-finger scroll begins",
     )
 
+    replace_once(
+        egui_winit,
+        '''            if self.pointer_pos_in_points.is_some() {
+                self.pointer_pos_in_points = None;
+                self.egui_input.events.push(egui::Event::PointerGone);
+            }
+''',
+        '''            if let Some(centroid) = self.two_finger_scroll_last_centroid {
+                self.pointer_pos_in_points = Some(centroid);
+                self.egui_input.events.push(egui::Event::PointerMoved(centroid));
+            }
+''',
+        "keep the scroll hit target under the two-finger centroid",
+    )
     # The generated launcher is kept in the source checkout. Bump its marker whenever its
     # generated Rust changes, so a reused checkout cannot keep an older incompatible wrapper.
     replace_once(
