@@ -147,7 +147,10 @@ jobs:
           targets: aarch64-linux-android
 
       - name: Install ArtCraft build dependency
-        run: python -m pip install --upgrade Pillow
+        run: |
+          python -m pip install --upgrade Pillow
+          sudo apt-get update
+          sudo apt-get install -y librsvg2-bin
 
       - name: Build WordCraft Android APK
         shell: bash
@@ -156,7 +159,8 @@ jobs:
           set -euo pipefail
           # The source is pinned and patched above. ArtCraft supplies the native Android
           # launcher, keyboard/modifier adapter, IME bridge, SAF picker and signed APK packaging.
-          if bash build.sh -wordcraft -tag=v0.15.0 -packagename=ai.storyteller.wordcraft; then
+          if bash build.sh -wordcraft -tag=v0.15.0 -packagename=ai.storyteller.wordcraft \
+            -appicon="$GITHUB_WORKSPACE/workspace/assets/wordcraft-icon.svg"; then
             build_status=0
           else
             build_status=$?
