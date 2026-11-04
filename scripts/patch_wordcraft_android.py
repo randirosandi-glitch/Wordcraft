@@ -76,7 +76,12 @@ def main() -> None:
                                     || event.getKeyCode() == KeyEvent.KEYCODE_FORWARD_DEL
                                     || event.getKeyCode() == KeyEvent.KEYCODE_ENTER
                                     || event.getKeyCode() == KeyEvent.KEYCODE_SPACE);
-                            if (!physicalKeyboardEvent || imeHandledPhysicalKey) {
+                            if (physicalKeyboardEvent && imeHandledPhysicalKey) {
+                                // The corresponding IME event was already queued above. Do not
+                                // forward this same physical key a second time into GameActivity.
+                                return true;
+                            }
+                            if (!physicalKeyboardEvent) {
                                 imeKeySynthesized.add(event.getKeyCode());
                             }
                             return super.sendKeyEvent(event);""",
