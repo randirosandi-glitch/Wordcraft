@@ -739,6 +739,39 @@ fn handle_primary_pointer(
         "canvas IME observation guard",
     )
 
+    # SAF results are produced by Android activity callbacks and background URI-copy workers.
+    # The native loop may be idle after the picker returns; queueing alone does not request a
+    # frame, so the user had to tap the screen before the selected document appeared. Wake the
+    # GameActivity loop on the UI thread whenever a picker result or incoming file is queued.
+    replace_once(
+        activity,
+        "    public String safPoll() { return results.poll(); }",
+        """    private void enqueueSafResult(String value) {
+        results.offer(value);
+        runOnUiThread(this::wakeImeLoop);
+    }
+
+    private void enqueueIntentPath(String value) {
+        intentPaths.offer(value);
+        runOnUiThread(this::wakeImeLoop);
+    }
+
+    public String safPoll() { return results.poll(); }""",
+        "wake native loop when Android SAF results arrive",
+    )
+    activity_text = activity.read_text(encoding="utf-8")
+    activity_text = activity_text.replace("results.offer(", "enqueueSafResult(")
+    activity_text = activity_text.replace("intentPaths.offer(", "enqueueIntentPath(")
+    activity_text = activity_text.replace(
+        "private void enqueueSafResult(String value) {\n        enqueueSafResult(value);",
+        "private void enqueueSafResult(String value) {\n        results.offer(value);",
+    )
+    activity_text = activity_text.replace(
+        "private void enqueueIntentPath(String value) {\n        enqueueIntentPath(value);",
+        "private void enqueueIntentPath(String value) {\n        intentPaths.offer(value);",
+    )
+    activity.write_text(activity_text, encoding="utf-8")
+
     require(
         activity,
         (
@@ -750,6 +783,9 @@ fn handle_primary_pointer(
             'claimImeEnter("action")',
             "imeWakePending.compareAndSet(false, true)",
             "private void wakeImeLoop()",
+            "private void enqueueSafResult(String value)",
+            "private void enqueueIntentPath(String value)",
+            "runOnUiThread(this::wakeImeLoop)",
         ),
         "Android physical editing-key deduplication",
     )
