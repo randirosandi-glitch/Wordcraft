@@ -74,12 +74,12 @@ def main() -> None:
     replace_once(
         common,
         '''        if has_raw_hook:
-            inner_hook = "let _ = ctx;\\n        self.inner.raw_input_hook(raw);"''',
+            inner_hook = "let _ = ctx;\n        self.inner.raw_input_hook(raw);"''',
         '''        if has_raw_hook:
             if app == "wordcraft":
                 inner_hook = "self.inner.raw_input_hook(ctx, raw);"
             else:
-                inner_hook = "let _ = ctx;\\n        self.inner.raw_input_hook(raw);"''',
+                inner_hook = "let _ = ctx;\n        self.inner.raw_input_hook(raw);"''',
         "WordCraft raw_input_hook adapter",
     )
 
@@ -202,8 +202,8 @@ def main() -> None:
     window_ui = source / "crates/ui-egui/src/window_ui.rs"
     replace_once(
         window_ui,
-        "            shown_document,\\n        } = self;",
-        "            shown_document,\\n            request_ime_hide: _,\\n        } = self;",
+        "            shown_document,\n        } = self;",
+        "            shown_document,\n            request_ime_hide: _,\n        } = self;",
         "WordApp window-swap IME field",
     )
 
