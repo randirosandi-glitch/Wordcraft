@@ -19,7 +19,7 @@
 
 ## Licensing status
 
-WordCraft upstream declares `MIT OR Apache-2.0` in its workspace manifest and contains both license files and attribution notices. The Android builder contains a license file and vendored components; the precise compatibility and notice obligations remain to be reviewed before any wholesale source import. Preserve every upstream and vendored license/NOTICE/attribution file.
+WordCraft upstream declares `MIT OR Apache-2.0` in its workspace manifest and contains both license files and attribution notices. The inspected Android builder `MostafaXS1/artcraft-android` declares the MIT License (Copyright © 2026 ArtCraft Team). Preserve that notice if its source is imported. Its vendored components and generated dependencies may carry separate license/NOTICE obligations; inspect and retain each before any wholesale source import.
 
 ## Future update procedure
 
