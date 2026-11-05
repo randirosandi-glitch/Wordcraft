@@ -48,59 +48,21 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Align ArtCraft Winit with WordCraft's pinned fork
+      - name: Verify ArtCraft Android input backend
         shell: bash
         working-directory: artcraft-android
         run: |
           set -euo pipefail
-          tmp="$(mktemp -d)"
-          git clone --filter=blob:none https://github.com/storytold/winit.git "$tmp/winit"
-          git -C "$tmp/winit" checkout --detach a517b3846ee8457d84ee4975110bfda6797c44dc
-          test "$(git -C "$tmp/winit" rev-parse HEAD)" = "a517b3846ee8457d84ee4975110bfda6797c44dc"
-          rm -rf vendor/winit
-          mkdir -p vendor/winit
-          git -C "$tmp/winit" archive --format=tar HEAD | tar -xf - -C vendor/winit
-          rm -rf "$tmp"
-
-          # ArtCraft's vendored egui-winit handles Android clipboard JNI; this adds the
-          # additional reset event exposed by WordCraft's pinned Winit fork.
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path("vendor/egui-winit/src/lib.rs")
-          s = p.read_text()
-          old = '''            WindowEvent::ActivationTokenDone { .. }
-                      | WindowEvent::AxisMotion { .. }
-                      | WindowEvent::DoubleTapGesture { .. } => EventResponse {'''
-          new = '''            WindowEvent::ActivationTokenDone { .. }
-                      | WindowEvent::AxisMotion { .. }
-                      | WindowEvent::DoubleTapGesture { .. }
-                      | WindowEvent::ImeResetCompleted { .. } => EventResponse {'''
-          if s.count(old) != 1:
-              raise SystemExit("egui-winit ignored-event anchor was not unique")
-          s = s.replace(old, new, 1)
-          needle = 'WindowEvent::PanGesture { .. } => "WindowEvent::PanGesture",'
-          if s.count(needle) != 1:
-              raise SystemExit("egui-winit event-name anchor was not unique")
-          s = s.replace(needle, needle + chr(10) + '        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",', 1)
-          p.write_text(s)
-          PY
-
-          # The upstream scrolling script targets an older canvas layout. Its current-source
-          # equivalent is applied by the audited WordCraft patcher, so skip only this legacy step.
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path("lib/build-common.sh")
-          s = p.read_text()
-          old = 'bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"'
-          new = 'if [[ "$APP" != "wordcraft" ]]; then' + chr(10) + '    bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"' + chr(10) + 'fi'
-          if s.count(old) != 1:
-              raise SystemExit("legacy scrolling hook was not found exactly once")
-          p.write_text(s.replace(old, new, 1))
-          PY
-
+          # Keep the builder's audited Android winit backend intact. Earlier CI replaced this
+          # backend with the older WordCraft-pinned upstream tree, dropping touchscreen
+          # multi-touch recognition and hardware touchpad classification.
           grep -q 'ImeResetCompleted' vendor/winit/src/event.rs
           grep -q 'reset_ime_with_request' vendor/winit/src/window.rs
-          grep -q 'ImeResetCompleted' vendor/egui-winit/src/lib.rs
+          grep -q 'Classification::TwoFingerSwipe' vendor/winit/src/platform_impl/android/mod.rs
+          grep -q 'Classification::MultiFingerSwipe' vendor/winit/src/platform_impl/android/mod.rs
+          grep -q 'self.recognise_touch_gesture(motion_event)' vendor/winit/src/platform_impl/android/mod.rs
+          grep -q 'MotionAction::Scroll if pointer_class' vendor/winit/src/platform_impl/android/mod.rs
+          test -f vendor/winit/src/platform_impl/android/device_kind.rs
 
       - name: Check out the exact WordCraft release source
         shell: bash
