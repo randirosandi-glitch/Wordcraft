@@ -172,48 +172,6 @@ def main() -> None:
     # (commit/delete/editor action) and GameActivity's native key queue. Route handled
     # editing keys through exactly one path, while leaving navigation/modifier keys native.
     activity = builder / "templates/android/SafActivity.java"
-    # Determine whether the event is from a physical keyboard *before* sending it
-    # through the IME edit bridge. Physical keys must reach winit once; virtual IME
-    # keys must become queued IME operations and have their forwarded key pair consumed.
-    replace_once(
-        activity,
-        """                            if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                                int code = event.getKeyCode();
-                                if (code == KeyEvent.KEYCODE_DEL) {
-                                    if (claimDelete("s")) {
-                                        queueImeEvent("d1,0");
-                                    }
-                                } else if (code == KeyEvent.KEYCODE_FORWARD_DEL) {
-                                    if (claimDelete("s")) {
-                                        queueImeEvent("d0,1");
-                                    }
-                                } else if (code == KeyEvent.KEYCODE_ENTER) {
-                                    if (claimImeEnter("key")) {
-                                        queueImeEvent("a6");
-                                    }
-                                }
-                            }""",
-        """                            boolean physicalKeyboardEvent =
-                                    event.getDeviceId() != android.view.KeyCharacterMap.VIRTUAL_KEYBOARD
-                                    && event.isFromSource(android.view.InputDevice.SOURCE_KEYBOARD);
-                            if (!physicalKeyboardEvent && event.getAction() == KeyEvent.ACTION_DOWN) {
-                                int code = event.getKeyCode();
-                                if (code == KeyEvent.KEYCODE_DEL) {
-                                    if (claimDelete("s")) {
-                                        queueImeEvent("d1,0");
-                                    }
-                                } else if (code == KeyEvent.KEYCODE_FORWARD_DEL) {
-                                    if (claimDelete("s")) {
-                                        queueImeEvent("d0,1");
-                                    }
-                                } else if (code == KeyEvent.KEYCODE_ENTER) {
-                                    if (claimImeEnter("key")) {
-                                        queueImeEvent("a6");
-                                    }
-                                }
-                            }""",
-        "separate physical keyboard keys from virtual IME operations",
-    )
     replace_once(
         activity,
         """                            imeKeySynthesized.add(event.getKeyCode());
@@ -285,14 +243,50 @@ def main() -> None:
                                     if (claimImeEnter("key")) {
                                         queueImeEvent("a6");
                                     }
-                                } else if (code == KeyEvent.KEYCODE_SPACE
-                                        && event.getDeviceId() != android.view.KeyCharacterMap.VIRTUAL_KEYBOARD
-                                        && event.isFromSource(android.view.InputDevice.SOURCE_KEYBOARD)) {
-                                    if (claimImeSpace("key")) {
-                                        queueImeEvent("c ");
-                                    }
                                 }""",
-        "deduplicate physical space and Enter key events",
+        "deduplicate Enter IME key/editor-action callbacks",
+    )
+    # Determine whether the event is from a physical keyboard *before* sending it
+    # through the IME edit bridge. Physical keys must reach winit once; virtual IME
+    # keys must become queued IME operations and have their forwarded key pair consumed.
+    replace_once(
+        activity,
+        """                            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                                int code = event.getKeyCode();
+                                if (code == KeyEvent.KEYCODE_DEL) {
+                                    if (claimDelete("s")) {
+                                        queueImeEvent("d1,0");
+                                    }
+                                } else if (code == KeyEvent.KEYCODE_FORWARD_DEL) {
+                                    if (claimDelete("s")) {
+                                        queueImeEvent("d0,1");
+                                    }
+                                } else if (code == KeyEvent.KEYCODE_ENTER) {
+                                    if (claimImeEnter("key")) {
+                                        queueImeEvent("a6");
+                                    }
+                                }
+                            }""",
+        """                            boolean physicalKeyboardEvent =
+                                    event.getDeviceId() != android.view.KeyCharacterMap.VIRTUAL_KEYBOARD
+                                    && event.isFromSource(android.view.InputDevice.SOURCE_KEYBOARD);
+                            if (!physicalKeyboardEvent && event.getAction() == KeyEvent.ACTION_DOWN) {
+                                int code = event.getKeyCode();
+                                if (code == KeyEvent.KEYCODE_DEL) {
+                                    if (claimDelete("s")) {
+                                        queueImeEvent("d1,0");
+                                    }
+                                } else if (code == KeyEvent.KEYCODE_FORWARD_DEL) {
+                                    if (claimDelete("s")) {
+                                        queueImeEvent("d0,1");
+                                    }
+                                } else if (code == KeyEvent.KEYCODE_ENTER) {
+                                    if (claimImeEnter("key")) {
+                                        queueImeEvent("a6");
+                                    }
+                                }
+                            }""",
+        "separate physical keyboard keys from virtual IME operations",
     )
     replace_once(
         activity,
