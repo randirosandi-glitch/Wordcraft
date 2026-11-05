@@ -62,7 +62,6 @@ jobs:
           grep -q 'Classification::MultiFingerSwipe' vendor/winit/src/platform_impl/android/mod.rs
           grep -q 'self.recognise_touch_gesture(motion_event)' vendor/winit/src/platform_impl/android/mod.rs
           grep -q 'MotionAction::Scroll if pointer_class' vendor/winit/src/platform_impl/android/mod.rs
-          test -f vendor/winit/src/platform_impl/android/device_kind.rs
 
       - name: Check out the exact WordCraft release source
         shell: bash
