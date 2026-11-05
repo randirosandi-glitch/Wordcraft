@@ -48,20 +48,62 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Verify ArtCraft Android input backend
+      - name: Merge WordCraft IME API with ArtCraft Android gesture backend
         shell: bash
         working-directory: artcraft-android
         run: |
           set -euo pipefail
-          # Keep the builder's audited Android winit backend intact. Earlier CI replaced this
-          # backend with the older WordCraft-pinned upstream tree, dropping touchscreen
-          # multi-touch recognition and hardware touchpad classification.
+          tmp="$(mktemp -d)"
+          # Preserve ArtCraft's audited Android backend before replacing Winit with the
+          # WordCraft-pinned fork. The Android module contains the touchscreen two-finger
+          # pan recognizer and hardware touchpad classification that the older fork lacks.
+          cp vendor/winit/src/platform_impl/android/mod.rs "$tmp/artcraft-android-mod.rs"
+          cp vendor/winit/src/platform_impl/android/device_kind.rs "$tmp/artcraft-device-kind.rs"
+
+          git clone --filter=blob:none https://github.com/storytold/winit.git "$tmp/winit"
+          git -C "$tmp/winit" checkout --detach a517b3846ee8457d84ee4975110bfda6797c44dc
+          test "$(git -C "$tmp/winit" rev-parse HEAD)" = "a517b3846ee8457d84ee4975110bfda6797c44dc"
+          rm -rf vendor/winit
+          mkdir -p vendor/winit
+          git -C "$tmp/winit" archive --format=tar HEAD | tar -xf - -C vendor/winit
+
+          # Keep WordCraft's ImeResetCompleted/reset_ime_with_request API while using
+          # ArtCraft's Android-specific event adapter and device classifier.
+          cp "$tmp/artcraft-android-mod.rs" vendor/winit/src/platform_impl/android/mod.rs
+          cp "$tmp/artcraft-device-kind.rs" vendor/winit/src/platform_impl/android/device_kind.rs
+          rm -rf "$tmp"
+
+          # Add the reset event from WordCraft's pinned Winit fork to egui-winit's exhaustive
+          # event match; ArtCraft's existing Android clipboard JNI remains untouched.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("vendor/egui-winit/src/lib.rs")
+          s = p.read_text()
+          old = '''            WindowEvent::ActivationTokenDone { .. }
+                      | WindowEvent::AxisMotion { .. }
+                      | WindowEvent::DoubleTapGesture { .. } => EventResponse {'''
+          new = '''            WindowEvent::ActivationTokenDone { .. }
+                      | WindowEvent::AxisMotion { .. }
+                      | WindowEvent::DoubleTapGesture { .. }
+                      | WindowEvent::ImeResetCompleted { .. } => EventResponse {'''
+          if s.count(old) != 1:
+              raise SystemExit("egui-winit ignored-event anchor was not unique")
+          s = s.replace(old, new, 1)
+          needle = 'WindowEvent::PanGesture { .. } => "WindowEvent::PanGesture",'
+          if s.count(needle) != 1:
+              raise SystemExit("egui-winit event-name anchor was not unique")
+          s = s.replace(needle, needle + chr(10) + '        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",', 1)
+          p.write_text(s)
+          PY
+
           grep -q 'ImeResetCompleted' vendor/winit/src/event.rs
           grep -q 'reset_ime_with_request' vendor/winit/src/window.rs
+          grep -q 'ImeResetCompleted' vendor/egui-winit/src/lib.rs
           grep -q 'Classification::TwoFingerSwipe' vendor/winit/src/platform_impl/android/mod.rs
           grep -q 'Classification::MultiFingerSwipe' vendor/winit/src/platform_impl/android/mod.rs
           grep -q 'self.recognise_touch_gesture(motion_event)' vendor/winit/src/platform_impl/android/mod.rs
           grep -q 'MotionAction::Scroll' vendor/winit/src/platform_impl/android/mod.rs
+          grep -q 'pub(crate) fn classify' vendor/winit/src/platform_impl/android/device_kind.rs
 
       - name: Check out the exact WordCraft release source
         shell: bash
