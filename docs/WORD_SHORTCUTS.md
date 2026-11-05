@@ -120,7 +120,7 @@ The following mappings were read directly from the pinned source's `CommandSpec:
 | Ctrl+G | `edit.findNext`, **not Go To** | CONFLICT — Go To is F5 or Ctrl+Alt+G |
 | F5 | `edit.goto` | IMPLEMENTED + NOT TESTED ON DEVICE |
 | Tab / Shift+Tab | `text.tab/backTab` | IMPLEMENTED + NOT TESTED ON DEVICE; list/table focus context still needs device testing |
-| Ctrl+Tab inside table | No matching binding found | NOT IMPLEMENTED |
+| Ctrl+Tab inside table | `text.insertTab` (Mod+Tab on Windows/Android) | IMPLEMENTED + NOT TESTED ON DEVICE; verify only when a table cell owns editor focus |
 | Ctrl+K | `insert.link` | IMPLEMENTED + NOT TESTED ON DEVICE |
 | Ctrl+Alt+M | `review.newComment` | IMPLEMENTED + NOT TESTED ON DEVICE |
 | Ctrl+Shift+E | `review.trackChanges` | IMPLEMENTED + NOT TESTED ON DEVICE |
@@ -143,3 +143,21 @@ The following mappings were read directly from the pinned source's `CommandSpec:
 - **Ctrl+0:** the command adds space before a paragraph; verify its toggle semantics before claiming exact Microsoft Word parity.
 
 This source mapping narrows implementation work, but Android event delivery, focus contexts, modifier state and actual editor effects still require automated and physical-device regression tests.
+
+
+## Microsoft Word 365 compatibility note (official documentation checked 2026-11-05)
+
+The handover's shortcut table mixes legacy Word mappings with current Word 365 behavior. Microsoft's current Windows shortcut reference applies to Microsoft 365, Word 2024, 2021, 2019 and 2016, and explicitly notes that its key examples use a US keyboard layout. The current reference lists:
+
+- Ctrl+G = Go To (WordCraft's pinned engine currently assigns Ctrl+G to Find Next).
+- Ctrl+Shift+V = Paste Text Only; Ctrl+Alt+C / Ctrl+Alt+V = Copy/Paste Formatting (WordCraft currently uses Ctrl+Shift+C / Ctrl+Shift+V for formatting, Ctrl+Alt+V for Paste Special, and Ctrl+Shift+Alt+V for keep-text-only).
+- Ctrl+Shift+S = Apply Styles (WordCraft already maps this to `styles.apply`; it is not Save As).
+- Ctrl+0 = return zoom to 100% (WordCraft currently maps it to `para.addSpaceBefore`).
+- Ctrl+Tab in a table inserts a tab character; the pinned engine maps Mod+Tab to `text.insertTab`.
+- F4 repeats the last action, F6 cycles focus among document/panes/ribbon/status bar, F8 extends selection, F10 activates KeyTips, and F11 moves to the next field. The pinned engine does not currently expose all of these Windows bindings.
+
+**Do not silently mix profiles.** The current source mapping above is what the pinned engine actually does; the Microsoft reference above is what current Word documents. The original handover's Ctrl+Shift+C/V formatting behavior is a legacy-compatible choice, not the current Word 365 default.
+
+Until the product shortcut profile is confirmed, keep the existing engine bindings unchanged and report the differences as conflicts. The next keyboard implementation pass must choose one coherent target profile and then update the engine registry, tests and help reference together.
+
+Official reference: [Microsoft Support — Keyboard shortcuts in Word](https://support.microsoft.com/en-us/accessibility/word/keyboard-shortcuts-in-word) (Windows section; consulted 2026-11-05).
