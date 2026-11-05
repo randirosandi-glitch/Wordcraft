@@ -39,3 +39,6 @@
 - Found important mapping conflicts: Ctrl+G is Find Next (Go To is F5 or Ctrl+Alt+G); Ctrl+Shift+S is Apply Styles (Save As is F12 / Alt+F2); Ctrl+Shift+V is Paste Formatting (Paste Special is Ctrl+Alt+V; keep-text-only is Ctrl+Shift+Alt+V).
 - These findings prevent incorrect shortcut claims and avoid rebinding established Word semantics.
 - A dedicated automated keymap regression matrix is the next implementation step; until it is added and run, mappings remain NOT TESTED on device.
+
+- Expanded the weighted scorecard to include the additional Tibor, Murdock and Congduan Android ports discovered in the broader search; rejected phone-first, unrelated and unreviewed candidates with explicit reasons.
+- Corrected the Ctrl+Shift+S finding: the pinned engine binds it to Apply Styles, while Save As is F12 / Alt+F2 on Windows.
