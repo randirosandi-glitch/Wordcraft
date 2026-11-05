@@ -1,7 +1,20 @@
 # Word-style keyboard shortcut inventory — initial status
 
-**Status policy:** a shortcut is not implemented merely because it is documented. Every IMPLEMENTED row requires a semantic editor command and a test. Current repository evidence does not yet prove the complete shortcut set. Therefore the inventory below marks shortcuts NOT TESTED until source-level handler mapping and automated tests are completed.
+## Existing engine shortcut infrastructure (verified at the pinned v0.15.0 source)
 
+The pinned upstream already contains a centralized command/keymap foundation; do not build a competing dispatcher in the Android shell:
+
+- `crates/engine/src/cmd.rs::registry()` constructs the semantic command registry from command modules.
+- `crates/engine/src/keymap.rs::KeyMap` normalizes key chords, resolves user-assigned keys before built-in command shortcuts, handles removed/reassigned shortcuts and exposes `keys_for`.
+- `crates/ui-egui/src/keys/shortcuts.rs::dispatch` resolves a chord against the registry and invokes the semantic command through `app.run`.
+- `global_shortcuts` defines a focus guard for editor canvas, text fields, overlay widgets and modal/customize-keyboard dialog contexts.
+- The engine keymap has unit tests for normalization, assignment overrides, removal, reset and malformed preference handling.
+
+This is a reusable registry/dispatcher, but it is not yet proven to satisfy every requested Microsoft Word mapping. The current Android patcher adjusts Android event delivery and modifier/IME behavior; it does not add every missing Word command or prove every chord on device.
+
+**Implementation gap:** the existing registry metadata does not by itself provide the full handover's per-shortcut Android status, context-conflict policy and per-shortcut regression-test matrix. The inventory below remains NOT TESTED until each binding is mapped to a real command and an automated test is run.
+
+**Status policy:** a shortcut is not implemented merely because it is documented. Every IMPLEMENTED row requires a semantic editor command and a test. Current repository evidence does not yet prove the complete shortcut set. Therefore the inventory below marks shortcuts NOT TESTED until source-level handler mapping and automated tests are completed.
 | Group | Shortcut | Intended command | Status |
 |---|---|---|---|
 | File | Ctrl+N | New document | NOT TESTED |
