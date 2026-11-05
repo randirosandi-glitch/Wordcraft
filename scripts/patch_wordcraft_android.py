@@ -819,7 +819,7 @@ fn handle_primary_pointer(
         (
             "boolean physicalKeyboardEvent =",
             "if (physicalKeyboardEvent)",
-            "Hardware keys belong to WordCraft's native key dispatcher.",
+            "Some hardware keyboards are delivered both as a native",
             "imeKeySynthesized.add(event.getKeyCode());",
             'claimImeSpace("commit")',
             'claimImeEnter("action")',
