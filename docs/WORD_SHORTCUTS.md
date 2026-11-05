@@ -12,9 +12,9 @@ The pinned upstream already contains a centralized command/keymap foundation; do
 
 This is a reusable registry/dispatcher, but it is not yet proven to satisfy every requested Microsoft Word mapping. The current Android patcher adjusts Android event delivery and modifier/IME behavior; it does not add every missing Word command or prove every chord on device.
 
-**Implementation gap:** the existing registry metadata does not by itself provide the full handover's per-shortcut Android status, context-conflict policy and per-shortcut regression-test matrix. The inventory below remains NOT TESTED until each binding is mapped to a real command and an automated test is run.
+**Remaining implementation gap:** the handover's complete per-shortcut Android runtime matrix and context-by-context verification are still outstanding. The new registry contract test now verifies a representative set of mappings against the pinned engine's real command registry; that is source-level evidence, not proof of Android event delivery.
 
-**Status policy:** a shortcut is not implemented merely because it is documented. Every IMPLEMENTED row requires a semantic editor command and a test. Current repository evidence does not yet prove the complete shortcut set. Therefore the inventory below marks shortcuts NOT TESTED until source-level handler mapping and automated tests are completed.
+**Status policy:** a shortcut is not implemented merely because it is documented. `ENGINE VERIFIED` means the pinned engine keymap resolves the chord to the stated semantic command and the CI registry contract test asserts it. `NOT TESTED ON DEVICE` remains until the matching Android physical-key path is exercised on hardware. `NOT IMPLEMENTED` means no binding exists in the pinned engine.
 | Group | Shortcut | Intended command | Status |
 |---|---|---|---|
 | File | Ctrl+N | New document | NOT TESTED |
@@ -78,7 +78,7 @@ Use stable IDs in the eventual registry, for example `KBD-EDIT-UNDO`, `KBD-CHAR-
 
 ## Verified built-in engine bindings (pinned WordCraft v0.15.0)
 
-The following mappings were read directly from the pinned source's `CommandSpec::key` declarations. `Mod` resolves to Ctrl on Android/Windows. These are **engine binding evidence only**; none is a physical-device PASS. Until the new Android-specific regression suite is run, report each as **IMPLEMENTED + NOT TESTED ON DEVICE**.
+The following mappings were read directly from the pinned source's `CommandSpec::key` declarations. `Mod` resolves to Ctrl on Android/Windows. Mappings asserted by `tests/word_shortcut_contract.rs` are **ENGINE VERIFIED + NOT TESTED ON DEVICE**; the remaining rows retain their own status below. No row is a physical-device PASS.
 
 | Requested chord / behavior | Pinned engine command | Status / caveat |
 |---|---|---|
@@ -127,9 +127,8 @@ The following mappings were read directly from the pinned source's `CommandSpec:
 | Alt+Shift+D / Alt+Shift+T | `insert.dateField/timeField` | IMPLEMENTED + NOT TESTED ON DEVICE |
 | F9 | `references.updateFields` | IMPLEMENTED + NOT TESTED ON DEVICE |
 | F12 | `file.saveAs` | IMPLEMENTED + NOT TESTED ON DEVICE |
-| F4 Repeat last action | No matching binding found | NOT IMPLEMENTED |
 | F6 Cycle panes | No matching binding found | NOT IMPLEMENTED |
-| F8 Selection extension mode | No matching binding found | NOT IMPLEMENTED |
+| F8 Selection extension mode | `select.extend` | ENGINE VERIFIED + NOT TESTED ON DEVICE |
 | F10 menu focus | Only Shift+F10 context-menu handling is present | NOT IMPLEMENTED as plain F10 |
 | F11 Next field | No F11 binding found; Alt+F1 is Next Field | NOT IMPLEMENTED |
 | Insert overtype | No editor overtype command/binding found | NOT IMPLEMENTED |
@@ -154,7 +153,7 @@ The handover's shortcut table mixes legacy Word mappings with current Word 365 b
 - Ctrl+Shift+S = Apply Styles (WordCraft already maps this to `styles.apply`; it is not Save As).
 - Ctrl+0 = return zoom to 100% (WordCraft currently maps it to `para.addSpaceBefore`).
 - Ctrl+Tab in a table inserts a tab character; the pinned engine maps Mod+Tab to `text.insertTab`.
-- F4 repeats the last action, F6 cycles focus among document/panes/ribbon/status bar, F8 extends selection, F10 activates KeyTips, and F11 moves to the next field. The pinned engine does not currently expose all of these Windows bindings.
+- F4 repeats the last action (`edit.repeat`) and F8 extends selection (`select.extend`) in the pinned engine. F6 cycles focus among document/panes/ribbon/status bar, F10 activates KeyTips, and F11 moves to the next field; those three bindings are not present in the pinned engine.
 
 **Do not silently mix profiles.** The current source mapping above is what the pinned engine actually does; the Microsoft reference above is what current Word documents. The original handover's Ctrl+Shift+C/V formatting behavior is a legacy-compatible choice, not the current Word 365 default.
 
@@ -167,6 +166,6 @@ Official reference: [Microsoft Support — Keyboard shortcuts in Word](https://s
 
 File: \`tests/word_shortcut_contract.rs\`
 
-The test is copied into the exact pinned WordCraft \`wordcraft-engine\` test suite during CI and exercises the real \`cmd::registry()\` and \`KeyMap::resolve()\` APIs. It covers document operations, undo/redo, clipboard, deletion, character and paragraph formatting, font controls, heading styles, navigation, find/replace/go-to, table-tab insertion, hyperlinks, comments, Track Changes and date/time fields. A second test locks down intentional mapping differences (Ctrl+G, Ctrl+Shift+S, Ctrl+Shift+V) and explicitly verifies that unsupported F4/F6/F8/F10/F11 bindings remain absent.
+The test is copied into the exact pinned WordCraft \`wordcraft-engine\` test suite during CI and exercises the real \`cmd::registry()\` and \`KeyMap::resolve()\` APIs. It covers document operations, undo/redo, clipboard, deletion, character and paragraph formatting, font controls, heading styles, navigation, find/replace/go-to, table-tab insertion, hyperlinks, comments, Track Changes and date/time fields. A second test locks down intentional mapping differences (Ctrl+G, Ctrl+Shift+S, Ctrl+Shift+V) and explicitly verifies F4 Repeat and F8 Extend Selection while checking that F6/F10/F11 remain unbound.
 
 **What PASS means:** a tested chord resolves to the expected semantic command in the pinned engine registry. It does not prove Android KeyEvent delivery, that the command succeeds in every document context, UI focus behavior, or physical-device behavior. Those remain separate tests. No no-op shortcut has been added.

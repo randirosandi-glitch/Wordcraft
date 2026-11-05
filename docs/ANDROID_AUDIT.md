@@ -57,3 +57,8 @@ This is an initial source-based audit. No physical device session, Android emula
 ## Shortcut registry contract automation
 
 \`tests/word_shortcut_contract.rs\` is injected into the exact pinned WordCraft engine test suite by CI. It checks actual \`cmd::registry()\` and \`KeyMap::resolve()\` mappings and known conflicts. A passing contract proves chord-to-command registration only; it does not prove Android KeyEvent delivery, handler outcomes in all contexts, IME coexistence or physical-device behavior.
+
+
+## Shortcut contract test result — first run
+
+The main chord-to-command mapping test passed. The second test failed because the initial contract incorrectly assumed F4 was unbound; source inspection confirmed F4 maps to `edit.repeat` and F8 maps to `select.extend`. The contract has been corrected to assert both mappings and leave only F6/F10/F11 as absent. This was a test expectation defect, not an Android APK compile failure; packaging did not run because CI stops on test failure.

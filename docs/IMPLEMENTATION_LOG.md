@@ -62,3 +62,10 @@
 - CI reported package \`ai.storyteller.wordcraft\`, version \`0.15.0\`, ABI \`arm64-v8a\`, APK v2 signature verification and zipalign success.
 - The builder uses an ephemeral signing certificate. Production signing-key continuity and physical-device upgrade remain unverified.
 - Added \`tests/word_shortcut_contract.rs\`, a registry-level contract test against the exact pinned WordCraft engine. Added the CI step and a \`tests/**\` push path. The test run is pending the next workflow result; it does not simulate Android input or prove editor behavior.
+
+
+## 2026-11-05 — shortcut contract correction from CI evidence
+
+- The first CI execution correctly caught a false assumption: the pinned engine binds F4 to `edit.repeat` and F8 to `select.extend`.
+- Updated the contract to assert those existing Word-style behaviors, and only treat F6, F10 and F11 as absent in the pinned registry.
+- The first shortcut contract test's main mapping test passed; its second test failed solely on the incorrect assumption that F4 was unbound. The corrected contract is queued for a fresh CI run.
