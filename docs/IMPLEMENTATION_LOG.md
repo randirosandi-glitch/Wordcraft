@@ -52,3 +52,13 @@
 - Exact APK SHA-256: `824175c2fa5f0bbf31e575fe841d9d9c818ab4fbcd6d31532fcab2e4a6e8ecb0`.
 - Artifact ZIP SHA-256: `366fa94282810d2fbcef040f42cee0e9b9c091351cae8ac0e6be6e492dc0ebc7`.
 - Installation and launch on the user's physical device remain NOT TESTED.
+
+
+## 2026-11-05 — migration APK retrieval and shortcut contract test
+
+- Verified successful migration CI run #60 \`41941838011\`, job \`126964317213\`, for build commit \`2f7ff82c1ab3b89af3ab8ceeae547ca16689b495\`.
+- Downloaded artifact \`wordcraft-artcraft-android-arm64\` (ID \`13377645613\`) and extracted the ARM64 APK.
+- Independently recomputed APK SHA-256 \`c1b93a514470ac69b9848c21589648bbb46be13fa4bf2c89201d9cdd022a3847\`; it matches the CI build log. APK ZIP integrity also passed locally.
+- CI reported package \`ai.storyteller.wordcraft\`, version \`0.15.0\`, ABI \`arm64-v8a\`, APK v2 signature verification and zipalign success.
+- The builder uses an ephemeral signing certificate. Production signing-key continuity and physical-device upgrade remain unverified.
+- Added \`tests/word_shortcut_contract.rs\`, a registry-level contract test against the exact pinned WordCraft engine. Added the CI step and a \`tests/**\` push path. The test run is pending the next workflow result; it does not simulate Android input or prove editor behavior.

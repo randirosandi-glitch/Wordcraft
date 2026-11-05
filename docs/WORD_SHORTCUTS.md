@@ -161,3 +161,12 @@ The handover's shortcut table mixes legacy Word mappings with current Word 365 b
 Until the product shortcut profile is confirmed, keep the existing engine bindings unchanged and report the differences as conflicts. The next keyboard implementation pass must choose one coherent target profile and then update the engine registry, tests and help reference together.
 
 Official reference: [Microsoft Support — Keyboard shortcuts in Word](https://support.microsoft.com/en-us/accessibility/word/keyboard-shortcuts-in-word) (Windows section; consulted 2026-11-05).
+
+
+## Automated registry contract test
+
+File: \`tests/word_shortcut_contract.rs\`
+
+The test is copied into the exact pinned WordCraft \`wordcraft-engine\` test suite during CI and exercises the real \`cmd::registry()\` and \`KeyMap::resolve()\` APIs. It covers document operations, undo/redo, clipboard, deletion, character and paragraph formatting, font controls, heading styles, navigation, find/replace/go-to, table-tab insertion, hyperlinks, comments, Track Changes and date/time fields. A second test locks down intentional mapping differences (Ctrl+G, Ctrl+Shift+S, Ctrl+Shift+V) and explicitly verifies that unsupported F4/F6/F8/F10/F11 bindings remain absent.
+
+**What PASS means:** a tested chord resolves to the expected semantic command in the pinned engine registry. It does not prove Android KeyEvent delivery, that the command succeeds in every document context, UI focus behavior, or physical-device behavior. Those remain separate tests. No no-op shortcut has been added.

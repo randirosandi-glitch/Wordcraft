@@ -9,6 +9,7 @@ on:
       - 'scripts/**'
       - 'assets/android-icon-pack/**'
       - 'assets/wordcraft-icon.svg'
+      - 'tests/**'
 
 permissions:
   contents: read
@@ -150,6 +151,16 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
+
+      - name: Run WordCraft shortcut contract tests
+        working-directory: artcraft-android
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -D "$GITHUB_WORKSPACE/workspace/tests/word_shortcut_contract.rs" \
+            "$GITHUB_WORKSPACE/artcraft-android/source/wordcraft/crates/engine/tests/word_shortcut_contract.rs"
+          cargo test --locked --manifest-path source/wordcraft/Cargo.toml \
+            -p wordcraft-engine --test word_shortcut_contract
 
       - name: Install ArtCraft build dependency
         run: |

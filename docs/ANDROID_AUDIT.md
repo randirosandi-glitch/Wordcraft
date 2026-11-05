@@ -41,9 +41,9 @@ The exact current generated Rust/Java source after patching must be inspected fr
 
 ## CI evidence
 
-GitHub Actions run #55 (run ID `41817364480`) on commit `5f9ad9fcc44f5d160af8698138cfcef06f939dc7` completed successfully. Its single build job passed the steps for source checkout, Android builder checkout, Winit alignment, exact WordCraft source checkout, patcher execution, SDK/NDK/Rust setup, APK build, signature/alignment/package/ARM64 verification and artifact upload.
+GitHub Actions run #60 (run ID `41941838011`) on code commit `2f7ff82c1ab3b89af3ab8ceeae547ca16689b495` completed successfully. Its build job passed source checkout, Android builder checkout, Winit alignment, exact WordCraft source checkout, patcher execution, SDK/NDK/Rust setup, APK build, signature/alignment/package/ARM64 verification and artifact upload. APK SHA-256: `c1b93a514470ac69b9848c21589648bbb46be13fa4bf2c89201d9cdd022a3847`.
 
-This is a CI build PASS, not a runtime or physical-device PASS.
+This is a CI build PASS, not a runtime or physical-device PASS. The artifact was downloaded and its checksum independently matched the CI log.
 
 ## Known scope decision
 
@@ -52,3 +52,8 @@ Indonesian spell-checking, grammar-checking and proofing dependencies are explic
 ## Audit limitations
 
 This is an initial source-based audit. No physical device session, Android emulator session, APK installation, DOCX round-trip, Google Drive provider test or runtime keyboard test was executed during this pass. Unknown root causes remain hypotheses until reproduced with logs.
+
+
+## Shortcut registry contract automation
+
+\`tests/word_shortcut_contract.rs\` is injected into the exact pinned WordCraft engine test suite by CI. It checks actual \`cmd::registry()\` and \`KeyMap::resolve()\` mappings and known conflicts. A passing contract proves chord-to-command registration only; it does not prove Android KeyEvent delivery, handler outcomes in all contexts, IME coexistence or physical-device behavior.
