@@ -179,24 +179,23 @@ def main() -> None:
         """                            if (physicalKeyboardEvent) {
                                 if (event.getAction() == KeyEvent.ACTION_DOWN) {
                                     int code = event.getKeyCode();
-                                    boolean handledByImeCallback = false;
-                                    // Some hardware keyboards are delivered both as a native
-                                    // GameActivity key and as an InputConnection echo. Whichever
-                                    // representation arrives first owns the edit; suppress only
-                                    // the second path. The claim helpers also arbitrate against
-                                    // paired IME callbacks (deleteSurroundingText, commitText,
-                                    // performEditorAction) regardless of callback order.
-                                    if (code == KeyEvent.KEYCODE_DEL
-                                            || code == KeyEvent.KEYCODE_FORWARD_DEL) {
-                                        handledByImeCallback = !claimDelete("s");
+                                    // Route text-editing keys through one authoritative path.
+                                    // If the paired IME callback arrived first, its claim is
+                                    // already taken and it owns the edit; otherwise queue it here.
+                                    if (code == KeyEvent.KEYCODE_DEL) {
+                                        if (claimDelete("s")) queueImeEvent("d1,0");
+                                    } else if (code == KeyEvent.KEYCODE_FORWARD_DEL) {
+                                        if (claimDelete("s")) queueImeEvent("d0,1");
                                     } else if (code == KeyEvent.KEYCODE_ENTER) {
-                                        handledByImeCallback = !claimImeEnter("key");
+                                        if (claimImeEnter("key")) queueImeEvent("a6");
                                     } else if (code == KeyEvent.KEYCODE_SPACE) {
-                                        handledByImeCallback = !claimImeSpace("key");
+                                        if (claimImeSpace("key")) queueImeEvent("c ");
+                                    } else {
+                                        code = KeyEvent.KEYCODE_UNKNOWN;
                                     }
-                                    if (handledByImeCallback) {
-                                        // The paired IME callback already produced the edit.
-                                        // Consume this forwarded KeyEvent so it cannot apply twice.
+                                    if (code != KeyEvent.KEYCODE_UNKNOWN) {
+                                        // Consume every forwarded copy of this physical edit key
+                                        // until key-up. Ordinary keys and shortcuts remain native.
                                         imeKeySynthesized.add(code);
                                     }
                                 }
@@ -852,8 +851,11 @@ fn handle_primary_pointer(
         (
             "boolean physicalKeyboardEvent =",
             "if (physicalKeyboardEvent)",
-            "Some hardware keyboards are delivered both as a native",
-            "imeKeySynthesized.add(event.getKeyCode());",
+            "Route text-editing keys through one authoritative path.",
+            "imeKeySynthesized.add(code);",
+            'if (claimDelete("s")) queueImeEvent("d1,0");',
+            'if (claimImeEnter("key")) queueImeEvent("a6");',
+            'if (claimImeSpace("key")) queueImeEvent("c ");',
             'claimImeSpace("commit")',
             'claimImeEnter("action")',
             "imeWakePending.compareAndSet(false, true)",
@@ -861,10 +863,6 @@ fn handle_primary_pointer(
             "private void enqueueSafResult(String value)",
             "private void enqueueIntentPath(String value)",
             "runOnUiThread(this::wakeImeLoop)",
-            'handledByImeCallback = !claimDelete("s");',
-            'handledByImeCallback = !claimImeEnter("key");',
-            'handledByImeCallback = !claimImeSpace("key");',
-            "imeKeySynthesized.add(code);",
         ),
         "Android physical editing-key deduplication",
     )
