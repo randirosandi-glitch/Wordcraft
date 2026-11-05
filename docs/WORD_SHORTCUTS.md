@@ -85,7 +85,7 @@ The following mappings were read directly from the pinned source's `CommandSpec:
 | Ctrl+N / O / S / P / W | `file.new/open/save/print/close` | IMPLEMENTED + NOT TESTED ON DEVICE |
 | Ctrl+F4 | `file.close` via Mod+F4 | IMPLEMENTED + NOT TESTED ON DEVICE |
 | F12 Save As | `file.saveAs` | IMPLEMENTED + NOT TESTED ON DEVICE |
-| Ctrl+Shift+S Save As | No Windows binding; Windows uses F12 / Alt+F2 | NOT IMPLEMENTED |
+| Ctrl+Shift+S Save As | Bound to `styles.apply` (Apply Styles), not Save As | CONFLICT — not implemented as Save As; F12 / Alt+F2 invoke Save As |
 | Ctrl+Tab switch document | No matching binding found | NOT IMPLEMENTED |
 | Ctrl+Z / Ctrl+Y | `edit.undo/redo` | IMPLEMENTED + NOT TESTED ON DEVICE |
 | Ctrl+X / C / V | `edit.cut/copy/paste` | IMPLEMENTED + NOT TESTED ON DEVICE |
@@ -138,7 +138,7 @@ The following mappings were read directly from the pinned source's `CommandSpec:
 ### Important mapping conflicts
 
 - **Ctrl+G:** the engine assigns it to Find Next. The handover requests Go To. Preserve the current built-in mapping unless a deliberate, documented reassignment is approved; F5 and Ctrl+Alt+G already invoke Go To.
-- **Ctrl+Shift+S:** Save As is F12 / Alt+F2 on Windows in the pinned engine. Do not advertise Ctrl+Shift+S until a tested mapping is added.
+- **Ctrl+Shift+S:** WordCraft binds this to `styles.apply` (Apply Styles), matching the standard Word command. Save As is F12 / Alt+F2 on Windows. Do not reassign it to Save As.
 - **Ctrl+Shift+V:** in WordCraft it applies copied formatting. Paste Special is Ctrl+Alt+V; keep-text-only is Ctrl+Shift+Alt+V. Do not relabel these commands.
 - **Ctrl+0:** the command adds space before a paragraph; verify its toggle semantics before claiming exact Microsoft Word parity.
 
