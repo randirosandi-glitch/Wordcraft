@@ -62,3 +62,6 @@ This is an initial source-based audit. No physical device session, Android emula
 ## Shortcut contract test result — first run
 
 The main chord-to-command mapping test passed. The second test failed because the initial contract incorrectly assumed F4 was unbound; source inspection confirmed F4 maps to `edit.repeat` and F8 maps to `select.extend`. The contract has been corrected to assert both mappings and leave only F6/F10/F11 as absent. This was a test expectation defect, not an Android APK compile failure; packaging did not run because CI stops on test failure.
+
+
+A follow-up source check also found F9 bound to `references.updateFields` and F11 bound to `view.fullScreen`; F11 cannot be described as unbound because it conflicts with Word's next-field shortcut. The next CI contract was updated to assert those current engine mappings.

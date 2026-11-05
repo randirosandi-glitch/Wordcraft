@@ -59,7 +59,9 @@ fn word_style_conflicts_repeat_extend_selection_and_unbound_function_keys_are_ex
     assert_eq!(keymap.resolve(&registry, "Mod+Shift+Alt+V").map(|s| s.id), Some("edit.pasteText"));
     assert_eq!(keymap.resolve(&registry, "F4").map(|s| s.id), Some("edit.repeat"));
     assert_eq!(keymap.resolve(&registry, "F8").map(|s| s.id), Some("select.extend"));
-    for chord in ["F6", "F10", "F11"] {
+    assert_eq!(keymap.resolve(&registry, "F9").map(|s| s.id), Some("references.updateFields"));
+    assert_eq!(keymap.resolve(&registry, "F11").map(|s| s.id), Some("view.fullScreen"));
+    for chord in ["F6", "F10"] {
         assert_eq!(keymap.resolve(&registry, chord).map(|s| s.id), None, "{chord} is not implemented in the pinned registry");
     }
 }

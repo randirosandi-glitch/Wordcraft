@@ -58,7 +58,7 @@ This is a reusable registry/dispatcher, but it is not yet proven to satisfy ever
 | Links | Ctrl+K | Insert/edit hyperlink | NOT TESTED |
 | Review | Ctrl+Alt+M / Ctrl+Shift+E | Comment / Track Changes | NOT TESTED |
 | Fields | Alt+Shift+D / Alt+Shift+T / F9 | Date / time / update fields | NOT TESTED |
-| Function | F1 / F4 / F6 / F8 / F10 / F11 | Help/repeat/panes/selection/menu/field navigation | NOT TESTED |
+| Function | F1 / F4 / F6 / F8 / F10 / F11 | Help / Repeat / pane focus / selection / KeyTips / next field | MIXED; see engine evidence below |
 | Excluded | F7 | Indonesian proofing | NOT APPLICABLE — explicitly out of scope |
 
 ## Implementation requirements
@@ -130,7 +130,7 @@ The following mappings were read directly from the pinned source's `CommandSpec:
 | F6 Cycle panes | No matching binding found | NOT IMPLEMENTED |
 | F8 Selection extension mode | `select.extend` | ENGINE VERIFIED + NOT TESTED ON DEVICE |
 | F10 menu focus | Only Shift+F10 context-menu handling is present | NOT IMPLEMENTED as plain F10 |
-| F11 Next field | No F11 binding found; Alt+F1 is Next Field | NOT IMPLEMENTED |
+| F11 Next field | `view.fullScreen` currently owns F11; Word's next-field behavior conflicts and is not bound. Alt+F1 is Next Field | NOT IMPLEMENTED (Word parity conflict) |
 | Insert overtype | No editor overtype command/binding found | NOT IMPLEMENTED |
 | F7 Indonesian proofing | Explicitly excluded by project scope | NOT APPLICABLE |
 
@@ -153,7 +153,7 @@ The handover's shortcut table mixes legacy Word mappings with current Word 365 b
 - Ctrl+Shift+S = Apply Styles (WordCraft already maps this to `styles.apply`; it is not Save As).
 - Ctrl+0 = return zoom to 100% (WordCraft currently maps it to `para.addSpaceBefore`).
 - Ctrl+Tab in a table inserts a tab character; the pinned engine maps Mod+Tab to `text.insertTab`.
-- F4 repeats the last action (`edit.repeat`) and F8 extends selection (`select.extend`) in the pinned engine. F6 cycles focus among document/panes/ribbon/status bar, F10 activates KeyTips, and F11 moves to the next field; those three bindings are not present in the pinned engine.
+- F4 repeats the last action (`edit.repeat`), F8 extends selection (`select.extend`), F9 updates fields (`references.updateFields`), and F11 toggles full screen (`view.fullScreen`) in the pinned engine. F6 cycles focus among document/panes/ribbon/status bar and F10 activates KeyTips; neither has a plain-key binding. Word's F11 next-field behavior conflicts with WordCraft's current full-screen binding.
 
 **Do not silently mix profiles.** The current source mapping above is what the pinned engine actually does; the Microsoft reference above is what current Word documents. The original handover's Ctrl+Shift+C/V formatting behavior is a legacy-compatible choice, not the current Word 365 default.
 
@@ -166,6 +166,6 @@ Official reference: [Microsoft Support — Keyboard shortcuts in Word](https://s
 
 File: \`tests/word_shortcut_contract.rs\`
 
-The test is copied into the exact pinned WordCraft \`wordcraft-engine\` test suite during CI and exercises the real \`cmd::registry()\` and \`KeyMap::resolve()\` APIs. It covers document operations, undo/redo, clipboard, deletion, character and paragraph formatting, font controls, heading styles, navigation, find/replace/go-to, table-tab insertion, hyperlinks, comments, Track Changes and date/time fields. A second test locks down intentional mapping differences (Ctrl+G, Ctrl+Shift+S, Ctrl+Shift+V) and explicitly verifies F4 Repeat and F8 Extend Selection while checking that F6/F10/F11 remain unbound.
+The test is copied into the exact pinned WordCraft \`wordcraft-engine\` test suite during CI and exercises the real \`cmd::registry()\` and \`KeyMap::resolve()\` APIs. It covers document operations, undo/redo, clipboard, deletion, character and paragraph formatting, font controls, heading styles, navigation, find/replace/go-to, table-tab insertion, hyperlinks, comments, Track Changes and date/time fields. A second test locks down intentional mapping differences (Ctrl+G, Ctrl+Shift+S, Ctrl+Shift+V) and explicitly verifies F4 Repeat, F8 Extend Selection, F9 Update Fields and the existing F11 Full Screen binding while checking that F6/F10 remain unbound.
 
 **What PASS means:** a tested chord resolves to the expected semantic command in the pinned engine registry. It does not prove Android KeyEvent delivery, that the command succeeds in every document context, UI focus behavior, or physical-device behavior. Those remain separate tests. No no-op shortcut has been added.

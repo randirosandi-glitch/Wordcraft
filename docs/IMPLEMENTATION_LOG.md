@@ -69,3 +69,6 @@
 - The first CI execution correctly caught a false assumption: the pinned engine binds F4 to `edit.repeat` and F8 to `select.extend`.
 - Updated the contract to assert those existing Word-style behaviors, and only treat F6, F10 and F11 as absent in the pinned registry.
 - The first shortcut contract test's main mapping test passed; its second test failed solely on the incorrect assumption that F4 was unbound. The corrected contract is queued for a fresh CI run.
+
+
+- Further source inspection confirmed F9 resolves to `references.updateFields` and F11 resolves to `view.fullScreen`; F11 is therefore a Word-parity conflict, not an absent binding. The contract now asserts both and only expects F6/F10 to be unbound.
