@@ -947,7 +947,7 @@ fn handle_primary_pointer(
             "Classification::MultiFingerSwipe",
             "self.recognise_touch_gesture(motion_event)",
             "device_kind::classify(",
-            "MotionAction::Scroll if pointer_class",
+            "MotionAction::Scroll",
             "MouseScrollDelta::PixelDelta",
             "MouseScrollDelta::LineDelta",
             "TouchPhase::Cancelled",
