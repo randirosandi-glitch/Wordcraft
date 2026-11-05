@@ -1051,6 +1051,8 @@ fn handle_primary_pointer(
             "Classification::TwoFingerSwipe",
             "Classification::MultiFingerSwipe",
             "self.recognise_touch_gesture(motion_event)",
+            "pub fn reset_ime(&self)",
+            "pub fn reset_ime_with_request",
             "device_kind::classify(",
             "MotionAction::Scroll",
             "MouseScrollDelta::PixelDelta",
