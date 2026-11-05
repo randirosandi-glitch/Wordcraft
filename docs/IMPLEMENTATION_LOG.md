@@ -29,3 +29,13 @@
 - Updated README to match the actual workflow inputs and to distinguish CI build success from physical-device validation.
 - Updated workflow push filters to include `migration/**`, so the isolated migration branch is built by CI rather than only the default/fix branches.
 - Workflow run started for migration branch commit `543973e8568e011e6337482a91791533cf217ae7`; result pending at log update time.
+
+
+## 2026-11-05 — pinned WordCraft shortcut mapping audit
+
+- Read the exact WordCraft v0.15.0 pinned source, not only upstream HEAD.
+- Confirmed the command registry already binds a broad set of Word-style shortcuts to semantic command IDs, including file operations, edit/clipboard, character and paragraph formatting, fonts, headings, navigation, find/replace, hyperlinks, comments, track changes and fields.
+- Recorded exact command IDs and unresolved Android/device status in `docs/WORD_SHORTCUTS.md`.
+- Found important mapping conflicts: Ctrl+G is Find Next (Go To is F5 or Ctrl+Alt+G); Ctrl+Shift+S is Apply Styles (Save As is F12 / Alt+F2); Ctrl+Shift+V is Paste Formatting (Paste Special is Ctrl+Alt+V; keep-text-only is Ctrl+Shift+Alt+V).
+- These findings prevent incorrect shortcut claims and avoid rebinding established Word semantics.
+- A dedicated automated keymap regression matrix is the next implementation step; until it is added and run, mappings remain NOT TESTED on device.
