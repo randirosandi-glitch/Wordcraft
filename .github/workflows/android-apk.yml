@@ -136,6 +136,11 @@ jobs:
           python3 "$GITHUB_WORKSPACE/workspace/scripts/patch_wordcraft_android.py" \
             "$GITHUB_WORKSPACE/artcraft-android" \
             "$GITHUB_WORKSPACE/artcraft-android/source/wordcraft"
+          # ArtCraft's scrolling.sh adds request_ime_hide to WordApp. Keep the upstream
+          # constructor and app-wide window-state destructuring exhaustive for that field.
+          python3 -m py_compile "$GITHUB_WORKSPACE/workspace/scripts/fix_wordapp_ime_hide.py"
+          python3 "$GITHUB_WORKSPACE/workspace/scripts/fix_wordapp_ime_hide.py" \
+            "$GITHUB_WORKSPACE/artcraft-android/source/wordcraft"
           git -C source/wordcraft diff --check
           git diff --check
           echo "Verified WordCraft source commit: $actual"
