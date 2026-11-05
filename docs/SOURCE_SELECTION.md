@@ -70,3 +70,18 @@ Scores are 0–5. A score reflects retrieved source and build evidence, not READ
 - Build from a clean checkout of the migration branch and retain full logs.
 - Compare DOCX round-trip behavior and SAF provider behavior on device.
 - Audit all generated shortcut mappings against the live command registry.
+
+
+## Additional candidates found in broader repository search
+
+These were discovered after the initial shortlist and checked far enough to determine whether they were relevant to this product:
+
+| Candidate | Latest inspected commit | Finding | Decision |
+|---|---|---|---|
+| https://github.com/tiborequiem/Wordcraft-Android | `baff023204`, 2026-10-29 | Native Rust Android port with a custom touch gesture state machine, SAF and IME viewport work; README claims v0.10.0 and ARM64 | Keep as a touch/SAF reference. Not selected until physical keyboard tests, exact build evidence and source-level keyboard routing are verified; stated emphasis is touchscreen behavior rather than keyboard-first tablet use |
+| https://github.com/Murdock011/custom-wordcraft-android | `45f66110ce`, 2026-11-04 | Android native host and phone UI on WordCraft 0.15.0; README explicitly warns that code was AI-written, not reviewed line-by-line, and only lightly tested on an emulator and one Samsung phone | Reject as foundation for now. The maintainer's own warning is a material reliability risk; it also carries proofing-related work outside this project's scope |
+| https://github.com/congduan/wordcraft-android | `89ced021f6`, 2026-10-18 | WordCraft-derived Android shell with mobile-first command sheets, SAF open and soft-input lift | Keep as a UI reference, not the selected keyboard-first tablet base; no independently verified physical keyboard matrix found |
+| https://github.com/KR1901/wordcraft-android | `245edeee08`, 2026-10-31 | README describes a Jetpack Compose writing assistant and a custom software keyboard, not a port of the WordCraft document engine | Exclude as a false-positive name match; it is not the requested WordCraft editor |
+| https://github.com/galiehneh/wordcraft-android | `b4cf72bc78`, 2026-10-16 | Android project with Gradle/Compose-style root rather than the same NativeActivity Rust port architecture | Not promoted without evidence of compatibility with the official WordCraft engine and required desktop editing workflow |
+
+The wider search does not change the provisional selection. It does strengthen the decision not to choose a phone-first UI or an unreviewed fork for a tablet whose primary workload is serious document editing with a physical keyboard.
