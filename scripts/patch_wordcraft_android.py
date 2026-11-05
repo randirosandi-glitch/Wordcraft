@@ -179,23 +179,24 @@ def main() -> None:
         """                            if (physicalKeyboardEvent) {
                                 if (event.getAction() == KeyEvent.ACTION_DOWN) {
                                     int code = event.getKeyCode();
-                                    // Route text-editing keys through one authoritative path.
-                                    // If the paired IME callback arrived first, its claim is
-                                    // already taken and it owns the edit; otherwise queue it here.
-                                    if (code == KeyEvent.KEYCODE_DEL) {
-                                        if (claimDelete("s")) queueImeEvent("d1,0");
-                                    } else if (code == KeyEvent.KEYCODE_FORWARD_DEL) {
-                                        if (claimDelete("s")) queueImeEvent("d0,1");
+                                    boolean handledByImeCallback = false;
+                                    // Some hardware keyboards are delivered both as a native
+                                    // GameActivity key and as an InputConnection echo. Whichever
+                                    // representation arrives first owns the edit; suppress only
+                                    // the second path. The claim helpers also arbitrate against
+                                    // paired IME callbacks (deleteSurroundingText, commitText,
+                                    // performEditorAction) regardless of callback order.
+                                    if (code == KeyEvent.KEYCODE_DEL
+                                            || code == KeyEvent.KEYCODE_FORWARD_DEL) {
+                                        handledByImeCallback = !claimDelete("s");
                                     } else if (code == KeyEvent.KEYCODE_ENTER) {
-                                        if (claimImeEnter("key")) queueImeEvent("a6");
+                                        handledByImeCallback = !claimImeEnter("key");
                                     } else if (code == KeyEvent.KEYCODE_SPACE) {
-                                        if (claimImeSpace("key")) queueImeEvent("c ");
-                                    } else {
-                                        code = KeyEvent.KEYCODE_UNKNOWN;
+                                        handledByImeCallback = !claimImeSpace("key");
                                     }
-                                    if (code != KeyEvent.KEYCODE_UNKNOWN) {
-                                        // Consume every forwarded copy of this physical edit key
-                                        // until key-up. Ordinary keys and shortcuts remain native.
+                                    if (handledByImeCallback) {
+                                        // The paired IME callback already produced the edit.
+                                        // Consume this forwarded KeyEvent so it cannot apply twice.
                                         imeKeySynthesized.add(code);
                                     }
                                 }
@@ -218,7 +219,15 @@ def main() -> None:
     private volatile long lastImeSpaceCommitAt = 0L;
     private volatile long lastImeSpaceKeyAt = 0L;
     private volatile long lastImeEnterActionAt = 0L;
-    private volatile long lastImeEnterKeyAt = 0L;""",
+    private volatile long lastImeEnterKeyAt = 0L;
+    // Physical-key and IME callbacks can represent the same press in either order.
+    private static final long IME_NATIVE_PAIR_MS = 100L;
+    private volatile int lastNativeEditKeyCode = KeyEvent.KEYCODE_UNKNOWN;
+    private volatile long lastNativeEditAt = 0L;
+    private volatile long lastNativeEditDownTime = 0L;
+    private volatile int lastNativeEditDeviceId = -1;
+    private volatile int lastImeEditKeyCode = KeyEvent.KEYCODE_UNKNOWN;
+    private volatile long lastImeEditAt = 0L;""",
         "Android IME cross-callback deduplication state",
     )
     replace_once(
@@ -227,8 +236,12 @@ def main() -> None:
                                 queueImeEvent("c" + text);
                             }""",
         """                            if (text != null && text.length() > 0) {
-                                if (!" ".contentEquals(text) || claimImeSpace("commit")) {
+                                if (!" ".contentEquals(text)) {
                                     queueImeEvent("c" + text);
+                                } else if (shouldQueueImeEdit(KeyEvent.KEYCODE_SPACE)
+                                        && claimImeSpace("commit")) {
+                                    queueImeEvent("c" + text);
+                                    noteImeEdit(KeyEvent.KEYCODE_SPACE);
                                 }
                             }""",
         "deduplicate IME space commits",
@@ -289,13 +302,38 @@ def main() -> None:
     )
     replace_once(
         activity,
+        """                        public boolean deleteSurroundingText(int beforeLength, int afterLength) {
+                            if (beforeLength > 0 || afterLength > 0) {
+                                if (claimDelete("d")) {
+                                    queueImeEvent("d" + beforeLength + "," + afterLength);
+                                }
+                            }
+                            return super.deleteSurroundingText(beforeLength, afterLength);
+                        }""",
+        """                        public boolean deleteSurroundingText(int beforeLength, int afterLength) {
+                            if (beforeLength > 0 || afterLength > 0) {
+                                int keyCode = beforeLength > 0
+                                        ? KeyEvent.KEYCODE_DEL : KeyEvent.KEYCODE_FORWARD_DEL;
+                                if (shouldQueueImeEdit(keyCode) && claimDelete("d")) {
+                                    queueImeEvent("d" + beforeLength + "," + afterLength);
+                                    noteImeEdit(keyCode);
+                                }
+                            }
+                            return super.deleteSurroundingText(beforeLength, afterLength);
+                        }""",
+        "deduplicate native and IME delete callbacks",
+    )
+    replace_once(
+        activity,
         """                        public boolean performEditorAction(int actionCode) {
                             queueImeEvent("a" + actionCode);
                             return super.performEditorAction(actionCode);
                         }""",
         """                        public boolean performEditorAction(int actionCode) {
-                            if (actionCode != 0 && claimImeEnter("action")) {
+                            if (actionCode != 0 && shouldQueueImeEdit(KeyEvent.KEYCODE_ENTER)
+                                    && claimImeEnter("action")) {
                                 queueImeEvent("a" + actionCode);
+                                noteImeEdit(KeyEvent.KEYCODE_ENTER);
                             }
                             return super.performEditorAction(actionCode);
                         }""",
@@ -303,8 +341,73 @@ def main() -> None:
     )
     replace_once(
         activity,
+        """                public boolean onKeyDown(int keyCode, KeyEvent event) {
+                    // A key the IME synthesised (see sendKeyEvent above): its deletion was already
+                    // queued, so consuming it here stops it bubbling to the Activity and reaching
+                    // winit as a second Backspace. Physical key events never carry the flag, so they
+                    // still fall through to the native queue below and keep working.
+                    if (imeKeySynthesized.contains(keyCode)) {
+                        return true;
+                    }
+                    // Let hardware key events fall through to the native input queue (winit), exactly
+                    // as they did before this view existed; the soft keyboard talks to us through the
+                    // InputConnection instead. This keeps physical keyboards working.
+                    return false;
+                }""",
+        """                public boolean onKeyDown(int keyCode, KeyEvent event) {
+                    if (imeKeySynthesized.contains(keyCode)) {
+                        return true;
+                    }
+                    boolean physicalKeyboardEvent =
+                            event.getDeviceId() != android.view.KeyCharacterMap.VIRTUAL_KEYBOARD
+                            && event.isFromSource(android.view.InputDevice.SOURCE_KEYBOARD);
+                    boolean editKey = keyCode == KeyEvent.KEYCODE_DEL
+                            || keyCode == KeyEvent.KEYCODE_FORWARD_DEL
+                            || keyCode == KeyEvent.KEYCODE_ENTER
+                            || keyCode == KeyEvent.KEYCODE_SPACE;
+                    if (physicalKeyboardEvent && editKey) {
+                        // The native event owns the edit if it arrives first. If an IME callback
+                        // already queued this same press, consume this copy instead.
+                        return !allowNativeEditKey(event);
+                    }
+                    return false;
+                }""",
+        "deduplicate native and IME physical key dispatch",
+    )
+    replace_once(
+        activity,
         """    private boolean claimDelete(String method) {""",
-        """    private boolean claimImeSpace(String method) {
+        """    private boolean shouldQueueImeEdit(int keyCode) {
+        long now = android.os.SystemClock.uptimeMillis();
+        return lastNativeEditKeyCode != keyCode || now - lastNativeEditAt >= IME_NATIVE_PAIR_MS;
+    }
+
+    private void noteImeEdit(int keyCode) {
+        lastImeEditKeyCode = keyCode;
+        lastImeEditAt = android.os.SystemClock.uptimeMillis();
+    }
+
+    private boolean allowNativeEditKey(KeyEvent event) {
+        int keyCode = event.getKeyCode();
+        long now = android.os.SystemClock.uptimeMillis();
+        if (event.getRepeatCount() == 0) {
+            if (lastImeEditKeyCode == keyCode && now - lastImeEditAt < IME_NATIVE_PAIR_MS) {
+                return false;
+            }
+            if (lastNativeEditKeyCode == keyCode
+                    && lastNativeEditDeviceId == event.getDeviceId()
+                    && lastNativeEditDownTime == event.getDownTime()) {
+                return false;
+            }
+        }
+        lastNativeEditKeyCode = keyCode;
+        lastNativeEditAt = now;
+        lastNativeEditDownTime = event.getDownTime();
+        lastNativeEditDeviceId = event.getDeviceId();
+        return true;
+    }
+
+    private boolean claimImeSpace(String method) {
         long now = android.os.SystemClock.uptimeMillis();
         long lastOther = "commit".equals(method) ? lastImeSpaceKeyAt : lastImeSpaceCommitAt;
         if (lastOther != 0L && now - lastOther < IME_TEXT_PAIR_MS) {
@@ -851,11 +954,14 @@ fn handle_primary_pointer(
         (
             "boolean physicalKeyboardEvent =",
             "if (physicalKeyboardEvent)",
-            "Route text-editing keys through one authoritative path.",
+            "Some hardware keyboards are delivered both as a native",
             "imeKeySynthesized.add(code);",
-            'if (claimDelete("s")) queueImeEvent("d1,0");',
-            'if (claimImeEnter("key")) queueImeEvent("a6");',
-            'if (claimImeSpace("key")) queueImeEvent("c ");',
+            "shouldQueueImeEdit(KeyEvent.KEYCODE_ENTER)",
+            "shouldQueueImeEdit(keyCode)",
+            "allowNativeEditKey(event)",
+            "noteImeEdit(KeyEvent.KEYCODE_DEL)",
+            "noteImeEdit(KeyEvent.KEYCODE_ENTER)",
+            "IME_NATIVE_PAIR_MS = 100L",
             'claimImeSpace("commit")',
             'claimImeEnter("action")',
             "imeWakePending.compareAndSet(false, true)",
