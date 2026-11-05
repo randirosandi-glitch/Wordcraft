@@ -761,160 +761,11 @@ def main() -> None:
         "SAF save retry/backoff behavior",
     )
 
-    # WordApp owns the one-frame request consumed by the Android shell's logic tick.
-    wordapp_lib = source / "crates/ui-egui/src/lib.rs"
-    replace_once(
-        wordapp_lib,
-        "    pub(crate) comment_drafts: panes::CommentDrafts,\n",
-        "    pub(crate) comment_drafts: panes::CommentDrafts,\n"
-        "    /// Android: the canvas surrendered focus to a scroll/draw gesture; the host hides IME.\n"
-        "    pub request_ime_hide: bool,\n",
-        "WordApp IME-hide state",
-    )
-
-    # The new Android IME-hide field is app-wide, so swap_window must explicitly
-    # leave it on the active WordApp rather than destructuring an incomplete pattern.
-    window_ui = source / "crates/ui-egui/src/window_ui.rs"
-    replace_once(
-        window_ui,
-        "            shown_document,\n        } = self;",
-        "            shown_document,\n            request_ime_hide: _,\n        } = self;",
-        "WordApp window-swap IME field",
-    )
-
-    wordapp_app = source / "crates/ui-egui/src/app.rs"
-    replace_once(
-        wordapp_app,
-        "            comment_drafts: Default::default(),\n",
-        "            comment_drafts: Default::default(),\n"
-        "            request_ime_hide: false,\n",
-        "WordApp IME-hide initialization",
-    )
-
-    canvas = source / "crates/ui-egui/src/canvas.rs"
-
-    # A two-finger scroll cancels the first finger pointer touch in egui-winit.
-    # Treat that cancellation as gesture takeover: stop an existing text-selection
-    # drag and do not dispatch pointer editing while the gesture is active.
-    replace_once(
-        canvas,
-        "fn handle_primary_pointer(\n",
-        """fn touch_gesture_active(ui: &Ui) -> bool {
-    ui.input(|i| {
-        i.events.iter().any(|event| matches!(
-            event,
-            egui::Event::Touch { phase: egui::TouchPhase::Cancel, .. }
-        ))
-    })
-}
-
-fn handle_primary_pointer(
-""",
-        "WordCraft two-finger scroll gesture guard",
-    )
-    replace_once(
-        canvas,
-        """    if !middle_gesture && !crate::table_pen::pointer(app, ui, resp, rects, layout, geo.scale) {
-        mouse(app, ui, resp, rects, layout, geo.scale);
-    }""",
-        """    if touch_gesture_active(ui) {
-        // A second finger took over a drag that may already have started text selection.
-        app.canvas.cancel_text_drag();
-    } else if !middle_gesture && !crate::table_pen::pointer(app, ui, resp, rects, layout, geo.scale) {
-        mouse(app, ui, resp, rects, layout, geo.scale);
-    }""",
-        "cancel text selection when two-finger scrolling takes over",
-    )
-
-    # Track a one-frame focus surrender separately from ordinary text-selection drags.
-    replace_once(
-        canvas,
-        "    pub want_focus: bool,\n",
-        "    pub want_focus: bool,\n"
-        "    pub(crate) surrendered_focus: bool,\n",
-        "canvas focus-surrender state",
-    )
-    replace_once(
-        canvas,
-        "            want_focus: true,\n",
-        "            want_focus: true,\n"
-        "            surrendered_focus: false,\n",
-        "canvas focus-surrender initialization",
-    )
-    replace_once(
-        canvas,
-        "    let full = ui.available_rect_before_wrap();\n",
-        "    let full = ui.available_rect_before_wrap();\n"
-        "    app.canvas.surrendered_focus = false;\n",
-        "canvas focus-surrender frame reset",
-    )
-
-    # In v0.15.0 the canvas response is factored into canvas_response(); the older ArtCraft
-    # scrolling patch targeted an inline ui.interact call that no longer exists.
-    replace_once(
-        canvas,
-        "fn canvas_response(ui: &mut Ui, content: Rect, scroll_target: Option<Rect>) -> egui::Response {\n",
-        "fn canvas_response(app: &mut WordApp, ui: &mut Ui, content: Rect, scroll_target: Option<Rect>) -> egui::Response {\n",
-        "canvas response adapter signature",
-    )
-    replace_once(
-        canvas,
-        '    let response = ui.interact(content, egui::Id::unique("wordcraft_canvas"), Sense::click_and_drag());\n',
-        '''    let response = ui.interact(content, egui::Id::unique("wordcraft_canvas"), Sense::click_and_drag());
-    if cfg!(target_os = "android") {
-        let is_scrolling = app.canvas.auto_scroll.blocks_input();
-        let is_drawing = app.canvas.ink.is_some()
-            || app.session.view.draw.mode != wordcraft_engine::cmd::draw::DrawMode::Select
-            || app.canvas.table_tool.is_some();
-        let is_object_drag = app.canvas.obj_drag.is_some() || app.canvas.crop_drag.is_some();
-        let touch_gesture = ui.input(|i| {
-            i.events.iter().any(|event| {
-                matches!(event, egui::Event::Touch { phase: egui::TouchPhase::Cancel, .. })
-            })
-        });
-        let is_text_drag = response.drag_started()
-            && !is_scrolling
-            && !is_drawing
-            && !is_object_drag
-            && !ui.input(|i| i.pointer.button_down(egui::PointerButton::Middle));
-        if touch_gesture || ((is_scrolling || is_drawing || is_object_drag) && !is_text_drag) {
-            response.surrender_focus();
-            app.canvas.surrendered_focus = true;
-            app.request_ime_hide = true;
-        }
-    }
-''',
-        "canvas Android gesture/IME handling",
-    )
-    replace_once(
-        canvas,
-        "        let resp = canvas_response(ui, content, scroll_target);\n",
-        "        let resp = canvas_response(app, ui, content, scroll_target);\n",
-        "canvas response call",
-    )
-
-    # A surrendered canvas must not immediately reacquire focus or ask egui to reopen IME.
-    replace_once(
-        canvas,
-        "    let focus_click = pointer_click || accesskit_click || resp.drag_started();\n",
-        "    let focus_click = !app.canvas.surrendered_focus && (pointer_click || accesskit_click || resp.drag_started());\n",
-        "canvas gesture focus guard",
-    )
-    replace_once(
-        canvas,
-        "    if focus_click || (app.canvas.want_focus && !resp.has_focus()) {\n",
-        "    let want_focus_honored = if cfg!(target_os = \"android\") { false } else { app.canvas.want_focus };\n"
-        "    if focus_click || (want_focus_honored && !resp.has_focus()) {\n",
-        "Android initial-focus behavior",
-    )
-    replace_once(
-        canvas,
-        "    crate::keys::observe_ime(app, ui.ctx(), ime_geometry, ime_interrupt);\n",
-        "    if !app.canvas.surrendered_focus {\n"
-        "        crate::keys::observe_ime(app, ui.ctx(), ime_geometry, ime_interrupt);\n"
-        "    }\n",
-        "canvas IME observation guard",
-    )
+    # The Android app-side two-finger scroll, focus surrender, and IME-hide patches are
+    # owned by ArtCraft's lib/scrolling.sh. Do not duplicate them here: the builder runs that
+    # script during build, after this WordCraft-specific patcher. Keeping one owner prevents
+    # duplicate struct fields and keeps momentum/focus behavior consistent with the Android
+    # Winit gesture recognizer.
 
     # SAF results are produced by Android activity callbacks and background URI-copy workers.
     # The native loop may be idle after the picker returns; queueing alone does not request a
@@ -999,42 +850,16 @@ fn handle_primary_pointer(
         ),
         "SAF auto-sync retry/backoff",
     )
+    scrolling_sh = builder / "lib/scrolling.sh"
     require(
-        wordapp_lib,
-        ("pub request_ime_hide: bool",),
-        "WordApp IME state",
-    )
-    require(
-        window_ui,
-        ("request_ime_hide: _,",),
-        "WordApp window-swap IME field",
-    )
-    require(
-        wordapp_app,
-        ("request_ime_hide: false,",),
-        "WordApp IME initialization",
-    )
-    require(
-        canvas,
+        scrolling_sh,
         (
-            "pub(crate) surrendered_focus: bool",
-            "fn touch_gesture_active(ui: &Ui) -> bool",
-            "app.canvas.cancel_text_drag();",
-            "surrendered_focus: false,",
-            "response.surrender_focus();",
-            "app.request_ime_hide = true;",
-            "canvas_response(app, ui, content, scroll_target)",
-            "if !app.canvas.surrendered_focus",
+            "fn touch_gesture_active(ui: &Ui)",
+            "pub surrendered_focus: bool",
+            "pub request_ime_hide: bool",
+            "SYNTH_MOMENTUM",
         ),
-        "WordCraft canvas IME integration",
-    )
-    require(
-        canvas,
-        (
-            "fn touch_gesture_active(ui: &Ui) -> bool",
-            "app.canvas.cancel_text_drag();",
-        ),
-        "WordCraft two-finger scroll gesture guard",
+        "single-owner ArtCraft Android touch scroll/focus/IME integration",
     )
 
     # Use the pinned ArtCraft Android winit backend as the single source of truth for
