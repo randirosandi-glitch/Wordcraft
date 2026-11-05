@@ -73,6 +73,21 @@ jobs:
           cp "$tmp/artcraft-device-kind.rs" vendor/winit/src/platform_impl/android/device_kind.rs
           rm -rf "$tmp"
 
+          # WordCraft's Android Window API exposes these IME reset hooks as no-ops.
+          # Preserve that API while retaining ArtCraft's richer Android input backend.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("vendor/winit/src/platform_impl/android/mod.rs")
+          s = p.read_text()
+          needle = "    pub fn set_ime_purpose(&self, _purpose: ImePurpose) {}\n"
+          replacement = needle + "\n    pub fn reset_ime(&self) {}\n\n    #[inline]\n    pub fn reset_ime_with_request(&self, _request_id: u64) {}\n"
+          if s.count(needle) != 1:
+              raise SystemExit("Android Winit IME reset insertion anchor was not unique")
+          if "pub fn reset_ime_with_request" in s:
+              raise SystemExit("Android Winit IME reset API already exists; refusing duplicate")
+          p.write_text(s.replace(needle, replacement, 1))
+          PY
+
           # Add the reset event from WordCraft's pinned Winit fork to egui-winit's exhaustive
           # event match; ArtCraft's existing Android clipboard JNI remains untouched.
           python3 - <<'PY'
@@ -99,6 +114,8 @@ jobs:
           grep -q 'ImeResetCompleted' vendor/winit/src/event.rs
           grep -q 'reset_ime_with_request' vendor/winit/src/window.rs
           grep -q 'ImeResetCompleted' vendor/egui-winit/src/lib.rs
+          grep -q 'pub fn reset_ime(&self)' vendor/winit/src/platform_impl/android/mod.rs
+          grep -q 'pub fn reset_ime_with_request' vendor/winit/src/platform_impl/android/mod.rs
           grep -q 'Classification::TwoFingerSwipe' vendor/winit/src/platform_impl/android/mod.rs
           grep -q 'Classification::MultiFingerSwipe' vendor/winit/src/platform_impl/android/mod.rs
           grep -q 'self.recognise_touch_gesture(motion_event)' vendor/winit/src/platform_impl/android/mod.rs
