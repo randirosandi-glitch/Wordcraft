@@ -933,7 +933,14 @@ def main() -> None:
         ),
         "Android system font catalog",
     )
-    integrate_android_icon_pack(builder, source)
+    # The Android icon pack ZIP was an older raster export and overrode the current
+    # wordcraft-icon.svg during APK generation. Keep the SVG as the single source of truth:
+    # build.sh passes it through -appicon, and ArtCraft's app_icons.py generates legacy,
+    # adaptive, round, and monochrome resources with its safe-zone/background handling.
+    icon_source = source / "assets" / "wordcraft-icon.svg"
+    if not icon_source.is_file():
+        raise SystemExit(f"Required WordCraft icon source is missing: {icon_source}")
+    print("Using the current WordCraft SVG as the sole launcher icon source; ignoring stale raster pack.")
 
     print(
         "Applied and verified WordCraft Android compatibility patches "
