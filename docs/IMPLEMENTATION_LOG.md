@@ -42,3 +42,13 @@
 
 - Expanded the weighted scorecard to include the additional Tibor, Murdock and Congduan Android ports discovered in the broader search; rejected phone-first, unrelated and unreviewed candidates with explicit reasons.
 - Corrected the Ctrl+Shift+S finding: the pinned engine binds it to Apply Styles, while Save As is F12 / Alt+F2 on Windows.
+
+
+## 2026-11-05 — retrieved APK verification logs
+
+- Downloaded the completed GitHub Actions job logs for run #55 (job `126531419395`).
+- Confirmed build success, exact package ID `ai.storyteller.wordcraft`, versionName `0.15.0`, versionCode `16781056`, ABI `arm64-v8a`, and native library presence.
+- APK signature verification passed using APK Signature Scheme v2; zipalign and ZIP integrity checks passed.
+- Exact APK SHA-256: `824175c2fa5f0bbf31e575fe841d9d9c818ab4fbcd6d31532fcab2e4a6e8ecb0`.
+- Artifact ZIP SHA-256: `366fa94282810d2fbcef040f42cee0e9b9c091351cae8ac0e6be6e492dc0ebc7`.
+- Installation and launch on the user's physical device remain NOT TESTED.
