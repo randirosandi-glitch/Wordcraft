@@ -692,6 +692,120 @@ def main() -> None:
         "SAF clipboard read bridge",
     )
 
+    # A background SAF mirror must not mark a provider write as saved before the
+    # ContentResolver commit succeeds. Preserve the dirty stamp and retry with bounded
+    # exponential backoff so a transient cloud-provider/network failure cannot lose a save.
+    replace_once(
+        saf_bridge,
+        """        scanned: Option<Instant>,
+""",
+        """        scanned: Option<Instant>,
+        /// A failed provider write stays dirty and is retried after this per-file deadline.
+        retry_after: HashMap<String, Instant>,
+        /// Bounded exponential backoff counter for each staged file.
+        failures: HashMap<String, u8>,
+""",
+        "SAF save mirror retry state",
+    )
+    replace_once(
+        saf_bridge,
+        """    impl SaveMirror {
+""",
+        """    /// Keep failed provider commits dirty and retry with bounded exponential backoff.
+    fn schedule_save_retry(tracked: &mut Tracked, candidate: &str, now: Instant) {
+        let attempts = tracked.failures.entry(candidate.to_owned()).or_insert(0);
+        *attempts = attempts.saturating_add(1);
+        let exponent = u32::from((*attempts).saturating_sub(1).min(5));
+        let seconds = (1_u64 << exponent).min(32);
+        tracked.retry_after.insert(candidate.to_owned(), now + Duration::from_secs(seconds));
+    }
+
+    impl SaveMirror {
+""",
+        "SAF save retry scheduler",
+    )
+    replace_once(
+        saf_bridge,
+        """        /// Commit every tracked file whose contents changed since the last sync.
+        pub fn sync(&self, bridge: &Bridge) {
+            let mut entries = self.entries.lock().unwrap_or_else(|error| error.into_inner());
+            for tracked in entries.values_mut() {
+                if tracked.scanned.is_none_or(|at| at.elapsed() >= SCAN_INTERVAL) {
+                    for candidate in family(&tracked.path) {
+                        tracked.stamps.entry(candidate.clone()).or_insert_with(|| file_stamp(&candidate));
+                    }
+                    tracked.scanned = Some(Instant::now());
+                }
+                let candidates: Vec<String> = tracked.stamps.keys().cloned().collect();
+                for candidate in candidates {
+                    let stamp = file_stamp(&candidate);
+                    if tracked.stamps.get(&candidate) == Some(&stamp) {
+                        continue;
+                    }
+                    tracked.stamps.insert(candidate.clone(), stamp);
+                    // An empty file is the staged copy the picker itself just created, not a write.
+                    if stamp.1 == 0 {
+                        continue;
+                    }
+                    match bridge.commit(&candidate) {
+                        Ok(status) if status == "NONE" || status == "OK" => {}
+                        Ok(status) => log::error!("Could not save {candidate}: {status}"),
+                        Err(error) => log::error!("Could not save {candidate}: {error}"),
+                    }
+                }
+            }
+        }
+""",
+        """        /// Commit changed staged files. A provider failure does not advance the saved stamp:
+        /// the local copy stays dirty and is retried after bounded backoff instead of being
+        /// silently treated as synced. This also prevents a per-frame error-log storm when a
+        /// cloud document provider is offline or temporarily refuses a write.
+        pub fn sync(&self, bridge: &Bridge) {
+            let mut entries = self.entries.lock().unwrap_or_else(|error| error.into_inner());
+            for tracked in entries.values_mut() {
+                if tracked.scanned.is_none_or(|at| at.elapsed() >= SCAN_INTERVAL) {
+                    for candidate in family(&tracked.path) {
+                        tracked.stamps.entry(candidate.clone()).or_insert_with(|| file_stamp(&candidate));
+                    }
+                    tracked.scanned = Some(Instant::now());
+                }
+                let candidates: Vec<String> = tracked.stamps.keys().cloned().collect();
+                for candidate in candidates {
+                    let stamp = file_stamp(&candidate);
+                    if tracked.stamps.get(&candidate) == Some(&stamp) {
+                        continue;
+                    }
+                    // An empty file is the staged copy the picker itself just created, not a write.
+                    if stamp.1 == 0 {
+                        tracked.stamps.insert(candidate.clone(), stamp);
+                        continue;
+                    }
+                    let now = Instant::now();
+                    if tracked.retry_after.get(&candidate).is_some_and(|retry_at| now < *retry_at) {
+                        continue;
+                    }
+                    match bridge.commit(&candidate) {
+                        Ok(status) if status == "NONE" || status == "OK" => {
+                            tracked.stamps.insert(candidate.clone(), stamp);
+                            tracked.retry_after.remove(&candidate);
+                            tracked.failures.remove(&candidate);
+                        }
+                        Ok(status) => {
+                            schedule_save_retry(tracked, &candidate, now);
+                            log::warn!("Deferred SAF save for {candidate}; will retry: {status}");
+                        }
+                        Err(error) => {
+                            schedule_save_retry(tracked, &candidate, now);
+                            log::warn!("Deferred SAF save for {candidate}; will retry: {error}");
+                        }
+                    }
+                }
+            }
+        }
+""",
+        "SAF save retry/backoff behavior",
+    )
+
     # WordApp owns the one-frame request consumed by the Android shell's logic tick.
     wordapp_lib = source / "crates/ui-egui/src/lib.rs"
     replace_once(
@@ -924,6 +1038,15 @@ fn handle_primary_pointer(
         saf_bridge,
         ("pub fn clipboard_text(&self) -> Option<String>", "super::android_clipboard_get(&self.app)"),
         "SAF clipboard bridge",
+    )
+    require(
+        saf_bridge,
+        (
+            "retry_after: HashMap<String, Instant>",
+            "schedule_save_retry(tracked, &candidate, now)",
+            'log::warn!("Deferred SAF save for {candidate}; will retry:',
+        ),
+        "SAF auto-sync retry/backoff",
     )
     require(
         wordapp_lib,
