@@ -33,18 +33,18 @@ Additional repository search found several similarly named ports/forks. They wer
 
 Scores are 0–5. A score reflects retrieved source and build evidence, not README claims alone. The scorecard is preliminary because no physical Android device was available to this audit.
 
-| Criterion | Weight | ArtCraft builder | Kanaaka | Nideta Android | Official engine alone |
-|---|---:|---:|---:|---:|---:|
-| Keyboard/shortcuts | 25% | 3.0 | 4.0 | 3.0 | 2.0 |
-| Android input/IME/lifecycle | 15% | 4.0 | 3.5 | 3.5 | 1.0 |
-| DOCX/document integrity | 15% | 4.0 | 2.5 | 3.5 | 5.0 |
-| Storage/SAF/save/recovery | 10% | 4.5 | 2.5 | 2.5 | 1.0 |
-| Build reproducibility/CI | 10% | 4.5 | 4.0 | 3.5 | 5.0 |
-| Maintenance/upstream activity | 10% | 3.5 | 2.0 | 2.0 | 5.0 |
-| Fonts/rendering | 5% | 4.0 | 3.0 | 3.5 | 4.0 |
-| Touch/trackpad/mouse | 5% | 4.0 | 3.5 | 3.0 | 2.0 |
-| License/maintainability | 5% | 3.5 | 4.0 | 4.0 | 5.0 |
-| **Weighted total / 5** | **100%** | **3.73** | **3.25** | **3.10** | **3.05** |
+| Criterion | Weight | ArtCraft builder | Kanaaka | Nideta Android | Tibor Android | Murdock fork | Congduan | Official engine alone |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| Keyboard/shortcuts | 25% | 3.0 | 4.0 | 3.0 | 2.5 | 2.0 | 2.0 | 2.0 |
+| Android input/IME/lifecycle | 15% | 4.0 | 3.5 | 3.5 | 3.5 | 3.0 | 3.0 | 1.0 |
+| DOCX/document integrity | 15% | 4.0 | 2.5 | 3.5 | 3.5 | 3.5 | 4.0 | 5.0 |
+| Storage/SAF/save/recovery | 10% | 4.5 | 2.5 | 2.5 | 3.5 | 4.0 | 3.5 | 1.0 |
+| Build reproducibility/CI | 10% | 4.5 | 4.0 | 3.5 | 3.5 | 3.5 | 3.5 | 5.0 |
+| Maintenance/upstream activity | 10% | 3.5 | 2.0 | 2.0 | 2.5 | 3.0 | 2.5 | 5.0 |
+| Fonts/rendering | 5% | 4.0 | 3.0 | 3.5 | 3.0 | 3.5 | 3.5 | 4.0 |
+| Touch/trackpad/mouse | 5% | 4.0 | 3.5 | 3.0 | 4.5 | 3.0 | 3.5 | 2.0 |
+| License/maintainability | 5% | 3.5 | 4.0 | 4.0 | 4.5 | 4.5 | 4.5 | 5.0 |
+| **Weighted total / 5** | **100%** | **3.73** | **3.25** | **3.10** | **3.23** | **3.08** | **3.08** | **3.05** |
 
 ### Score rationale and confidence
 
