@@ -20,3 +20,12 @@
 - No physical device/emulator tests were run.
 - No new APK was built in this session; the cited PASS is the existing GitHub Actions run #55.
 - No final release or shortcut parity claim is made.
+
+
+## 2026-11-05 — shortcut architecture inspection and CI branch enablement
+
+- Verified the pinned WordCraft v0.15.0 source already has a centralized semantic command registry (`crates/engine/src/cmd.rs::registry`), keymap (`crates/engine/src/keymap.rs::KeyMap`) and UI shortcut dispatcher (`crates/ui-egui/src/keys/shortcuts.rs::dispatch`). This should be extended rather than duplicated in the Android shell.
+- Confirmed keymap unit tests cover normalization, user override/removal/reset and malformed preferences. The complete requested Word-style chord inventory is not yet mapped/tested; documentation correctly retains NOT TESTED statuses.
+- Updated README to match the actual workflow inputs and to distinguish CI build success from physical-device validation.
+- Updated workflow push filters to include `migration/**`, so the isolated migration branch is built by CI rather than only the default/fix branches.
+- Workflow run started for migration branch commit `543973e8568e011e6337482a91791533cf217ae7`; result pending at log update time.
