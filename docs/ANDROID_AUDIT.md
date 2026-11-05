@@ -65,3 +65,10 @@ The main chord-to-command mapping test passed. The second test failed because th
 
 
 A follow-up source check also found F9 bound to `references.updateFields` and F11 bound to `view.fullScreen`; F11 cannot be described as unbound because it conflicts with Word's next-field shortcut. The next CI contract was updated to assert those current engine mappings.
+
+
+## Successful CI verification — run #65
+
+Run \`41946465806\` passed all required build steps. Both Word-style shortcut registry contract tests passed. The Android patcher applied the SAF retry/backoff changes and the APK was successfully built and verified for v2 signature, zip alignment, package ID \`ai.storyteller.wordcraft\`, and ABI \`arm64-v8a\`. APK SHA-256: \`74dd3a22fff7f157cf4cde4a5a5e69d1802002a81b08618f3d1495b94b8f0b1b\`.
+
+Physical-device checks for IME, Google Drive provider behavior, font enumeration, DOCX round trips, opening without a second tap and trackpad/touch remain NOT TESTED.

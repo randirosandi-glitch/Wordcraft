@@ -72,3 +72,15 @@
 
 
 - Further source inspection confirmed F9 resolves to `references.updateFields` and F11 resolves to `view.fullScreen`; F11 is therefore a Word-parity conflict, not an absent binding. The contract now asserts both and only expects F6/F10 to be unbound.
+
+
+## 2026-11-05 — successful end-to-end Android build #65
+
+- CI run \`41946465806\` / job \`126980284210\` completed SUCCESS on code commit \`5eec3859b68480a2ab2bb5aba9629e03b7b03141\`.
+- WordCraft engine shortcut contract tests both passed.
+- Android ARM64 APK build passed; package \`ai.storyteller.wordcraft\`, version \`0.15.0\`, ABI \`arm64-v8a\`.
+- Signature v2, alignment, package ID, ARM64 library presence and APK ZIP integrity all passed.
+- Artifact ID \`13380330153\`; APK SHA-256 \`74dd3a22fff7f157cf4cde4a5a5e69d1802002a81b08618f3d1495b94b8f0b1b\`; ZIP digest \`023b9b917a604ea095168b8008f48aaf2ed4448e90fa074ff0bb4b0ce555d55a\`.
+- Artifact was downloaded and extracted locally; independent SHA-256 matched the CI log.
+- The APK uses a runner-generated builder certificate, not a configured long-lived production key. Signing continuity remains unverified; never instruct users to uninstall an existing copy without backup.
+- Physical device acceptance matrix remains NOT TESTED.

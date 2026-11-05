@@ -169,3 +169,10 @@ File: \`tests/word_shortcut_contract.rs\`
 The test is copied into the exact pinned WordCraft \`wordcraft-engine\` test suite during CI and exercises the real \`cmd::registry()\` and \`KeyMap::resolve()\` APIs. It covers document operations, undo/redo, clipboard, deletion, character and paragraph formatting, font controls, heading styles, navigation, find/replace/go-to, table-tab insertion, hyperlinks, comments, Track Changes and date/time fields. A second test locks down intentional mapping differences (Ctrl+G, Ctrl+Shift+S, Ctrl+Shift+V) and explicitly verifies F4 Repeat, F8 Extend Selection, F9 Update Fields and the existing F11 Full Screen binding while checking that F6/F10 remain unbound.
 
 **What PASS means:** a tested chord resolves to the expected semantic command in the pinned engine registry. It does not prove Android KeyEvent delivery, that the command succeeds in every document context, UI focus behavior, or physical-device behavior. Those remain separate tests. No no-op shortcut has been added.
+
+
+## Registry contract CI result — run #65
+
+Both tests in \`tests/word_shortcut_contract.rs\` passed against the exact pinned WordCraft v0.15.0 engine registry. This verifies chord-to-command resolution for the tested bindings and the documented current conflicts. It is not evidence of Android key event delivery or physical-device behavior.
+
+Current function-key evidence: F4 = \`edit.repeat\`; F8 = \`select.extend\`; F9 = \`references.updateFields\`; F11 = \`view.fullScreen\` (conflicts with Word's next-field behavior); F6 and F10 are unbound in the pinned registry.
