@@ -180,11 +180,29 @@ def main() -> None:
                                     event.getDeviceId() != android.view.KeyCharacterMap.VIRTUAL_KEYBOARD
                                     && event.isFromSource(android.view.InputDevice.SOURCE_KEYBOARD);
                             if (physicalKeyboardEvent) {
-                                // Hardware keys belong to WordCraft's native key dispatcher.
-                                // Do not translate Backspace/Delete into IME DeleteSurrounding:
-                                // that IME operation intentionally does not join paragraph marks.
-                                // Forward the event to the host view; its onKeyDown/onKeyUp lets
-                                // physical keys fall through to GameActivity and winit.
+                                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                                    int code = event.getKeyCode();
+                                    boolean handledByImeCallback = false;
+                                    // Some hardware keyboards are delivered both as a native
+                                    // GameActivity key and as an InputConnection echo. Whichever
+                                    // representation arrives first owns the edit; suppress only
+                                    // the second path. The claim helpers also arbitrate against
+                                    // paired IME callbacks (deleteSurroundingText, commitText,
+                                    // performEditorAction) regardless of callback order.
+                                    if (code == KeyEvent.KEYCODE_DEL
+                                            || code == KeyEvent.KEYCODE_FORWARD_DEL) {
+                                        handledByImeCallback = !claimDelete("s");
+                                    } else if (code == KeyEvent.KEYCODE_ENTER) {
+                                        handledByImeCallback = !claimImeEnter("key");
+                                    } else if (code == KeyEvent.KEYCODE_SPACE) {
+                                        handledByImeCallback = !claimImeSpace("key");
+                                    }
+                                    if (handledByImeCallback) {
+                                        // The paired IME callback already produced the edit.
+                                        // Consume this forwarded KeyEvent so it cannot apply twice.
+                                        imeKeySynthesized.add(code);
+                                    }
+                                }
                                 return super.sendKeyEvent(event);
                             }
                             // Only virtual-IME synthesized keys are represented by queued IME
@@ -368,204 +386,6 @@ def main() -> None:
         "preserve WordCraft formatting clipboard shortcuts",
     )
 
-    # egui-winit's previous Android touch tracker cleared the first finger whenever a
-    # second, distinct finger started, so the multi-touch branch could never be reached.
-    # Track all active fingers and synthesize MouseWheel events from the two-finger centroid.
-    egui_winit = builder / "vendor/egui-winit/src/lib.rs"
-    replace_once(
-        egui_winit,
-        '''    gesture_touch_ids: Vec<u64>,
-''',
-        '''    gesture_touch_ids: Vec<u64>,
-    /// Active Android touch positions for two-finger document scrolling.
-    gesture_touch_positions: Vec<(u64, egui::Pos2)>,
-    two_finger_scroll_last_centroid: Option<egui::Pos2>,
-    two_finger_scroll_active: bool,
-''',
-        "Android two-finger scroll state",
-    )
-    replace_once(
-        egui_winit,
-        '''            gesture_touch_ids: Vec::new(),
-''',
-        '''            gesture_touch_ids: Vec::new(),
-            gesture_touch_positions: Vec::new(),
-            two_finger_scroll_last_centroid: None,
-            two_finger_scroll_active: false,
-''',
-        "Android two-finger scroll initialization",
-    )
-    replace_once(
-        egui_winit,
-        '''        // Keep track of which fingers make up the current gesture. A finger we have not seen before
-        // begins a fresh gesture, so the set resets to just that finger; a finger already in the
-        // set is another finger of the gesture in progress and is added. Two or more means
-        // multi-touch. A lifted finger is dropped, so a gesture that ends can never leave the set
-        // (and the pointer suppression) stuck on. See \x60gesture_touch_ids\x60 for why both a reset on
-        // \x60Started\x60 and a prune on \x60Ended\x60 are needed.
-        match touch.phase {
-            winit::event::TouchPhase::Started => {
-                if !self.gesture_touch_ids.contains(&touch.id) {
-                    self.gesture_touch_ids.clear();
-                }
-                self.gesture_touch_ids.push(touch.id);
-            }
-            winit::event::TouchPhase::Ended | winit::event::TouchPhase::Cancelled => {
-                self.gesture_touch_ids.retain(|id| *id != touch.id);
-            }
-            winit::event::TouchPhase::Moved => {}
-        }
-
-        // Emit touch event
-''',
-        '''        // Keep the active finger set until each finger lifts. A new finger joins the
-        // current gesture; it must not clear the first finger or multi-touch is never detected.
-        let pos = egui::pos2(
-            touch.location.x as f32 / pixels_per_point,
-            touch.location.y as f32 / pixels_per_point,
-        );
-        match touch.phase {
-            winit::event::TouchPhase::Started => {
-                if !self.gesture_touch_ids.contains(&touch.id) {
-                    self.gesture_touch_ids.push(touch.id);
-                }
-                if let Some((_, old_pos)) = self.gesture_touch_positions.iter_mut().find(|(id, _)| *id == touch.id) {
-                    *old_pos = pos;
-                } else {
-                    self.gesture_touch_positions.push((touch.id, pos));
-                }
-            }
-            winit::event::TouchPhase::Moved => {
-                if let Some((_, old_pos)) = self.gesture_touch_positions.iter_mut().find(|(id, _)| *id == touch.id) {
-                    *old_pos = pos;
-                }
-            }
-            winit::event::TouchPhase::Ended | winit::event::TouchPhase::Cancelled => {
-                self.gesture_touch_ids.retain(|id| *id != touch.id);
-                self.gesture_touch_positions.retain(|(id, _)| *id != touch.id);
-            }
-        }
-
-        // Emit touch event
-''',
-        "Android active touch tracking",
-    )
-    replace_once(
-        egui_winit,
-        '''            pos: egui::pos2(
-                touch.location.x as f32 / pixels_per_point,
-                touch.location.y as f32 / pixels_per_point,
-            ),
-''',
-        '''            pos,
-''',
-        "Android touch position reuse",
-    )
-    replace_once(
-        egui_winit,
-        '''        });
-
-        // A multi-finger gesture (two-finger scroll or pinch) must not also act on the pointer:
-''',
-        '''        });
-
-        // Turn the movement of two active fingers into a normal egui scroll-wheel stream.
-        // Use the centroid so both fingers contribute equally; the gesture never reaches the
-        // document as a text-selection drag or an accidental pinch zoom.
-        let active_positions = self
-            .gesture_touch_ids
-            .iter()
-            .take(2)
-            .filter_map(|id| self.gesture_touch_positions.iter().find(|(touch_id, _)| touch_id == id).map(|(_, p)| *p))
-            .collect::<Vec<_>>();
-        if active_positions.len() >= 2 {
-            let centroid = (active_positions[0].to_vec2() + active_positions[1].to_vec2()) * 0.5;
-            let centroid = egui::pos2(centroid.x, centroid.y);
-            if !self.two_finger_scroll_active {
-                self.two_finger_scroll_active = true;
-                self.two_finger_scroll_last_centroid = Some(centroid);
-                self.egui_input.events.push(egui::Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Point,
-                    delta: egui::Vec2::ZERO,
-                    phase: egui::TouchPhase::Start,
-                    modifiers: self.modifiers,
-                });
-            } else if let Some(previous) = self.two_finger_scroll_last_centroid {
-                let delta = centroid - previous;
-                if delta != egui::Vec2::ZERO {
-                    self.egui_input.events.push(egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Point,
-                        delta,
-                        phase: egui::TouchPhase::Move,
-                        modifiers: self.modifiers,
-                    });
-                }
-                self.two_finger_scroll_last_centroid = Some(centroid);
-            }
-        } else if self.two_finger_scroll_active {
-            self.two_finger_scroll_active = false;
-            self.two_finger_scroll_last_centroid = None;
-            self.egui_input.events.push(egui::Event::MouseWheel {
-                unit: egui::MouseWheelUnit::Point,
-                delta: egui::Vec2::ZERO,
-                phase: egui::TouchPhase::End,
-                modifiers: self.modifiers,
-            });
-            self.pointer_pos_in_points = None;
-            self.egui_input.events.push(egui::Event::PointerGone);
-        }
-
-        // A multi-finger gesture (two-finger scroll or pinch) must not also act on the pointer:
-''',
-        "Android two-finger scroll wheel synthesis",
-    )
-    replace_once(
-        egui_winit,
-        '''            if self.pointer_touch_id.is_some() {
-                self.pointer_touch_id = None;
-                self.on_mouse_button_input(
-                    winit::event::ElementState::Released,
-                    winit::event::MouseButton::Left,
-                );
-            }
-''',
-        '''            if let Some(pointer_id) = self.pointer_touch_id.take() {
-                let pointer_pos = self
-                    .gesture_touch_positions
-                    .iter()
-                    .find(|(id, _)| *id == pointer_id)
-                    .map(|(_, p)| *p)
-                    .unwrap_or(pos);
-                self.egui_input.events.push(egui::Event::Touch {
-                    device_id: egui::TouchDeviceId(egui::epaint::util::hash(touch.device_id)),
-                    id: egui::TouchId::from(pointer_id),
-                    phase: egui::TouchPhase::Cancel,
-                    pos: pointer_pos,
-                    force: None,
-                });
-                self.on_mouse_button_input(
-                    winit::event::ElementState::Released,
-                    winit::event::MouseButton::Left,
-                );
-            }
-''',
-        "cancel single-finger selection when two-finger scroll begins",
-    )
-
-    replace_once(
-        egui_winit,
-        '''            if self.pointer_pos_in_points.is_some() {
-                self.pointer_pos_in_points = None;
-                self.egui_input.events.push(egui::Event::PointerGone);
-            }
-''',
-        '''            if let Some(centroid) = self.two_finger_scroll_last_centroid {
-                self.pointer_pos_in_points = Some(centroid);
-                self.egui_input.events.push(egui::Event::PointerMoved(centroid));
-            }
-''',
-        "keep the scroll hit target under the two-finger centroid",
-    )
     # The generated launcher is kept in the source checkout. Bump its marker whenever its
     # generated Rust changes, so a reused checkout cannot keep an older incompatible wrapper.
     replace_once(
@@ -1008,19 +828,12 @@ fn handle_primary_pointer(
             "private void enqueueSafResult(String value)",
             "private void enqueueIntentPath(String value)",
             "runOnUiThread(this::wakeImeLoop)",
+            'handledByImeCallback = !claimDelete("s");',
+            'handledByImeCallback = !claimImeEnter("key");',
+            'handledByImeCallback = !claimImeSpace("key");',
+            "imeKeySynthesized.add(code);",
         ),
         "Android physical editing-key deduplication",
-    )
-    require(
-        egui_winit,
-        (
-            "gesture_touch_positions: Vec<(u64, egui::Pos2)>",
-            "two_finger_scroll_last_centroid: Option<egui::Pos2>",
-            "self.two_finger_scroll_active = true;",
-            "egui::Event::MouseWheel",
-            "egui::TouchPhase::Cancel",
-        ),
-        "Android two-finger touch scrolling",
     )
     require(
         common,
@@ -1086,78 +899,37 @@ fn handle_primary_pointer(
         "WordCraft two-finger scroll gesture guard",
     )
 
-    # Android GameActivity only buffers X/Y axes by default. Enable the two scroll axes,
-    # then translate ACTION_SCROLL into winit MouseWheel so trackpad/mouse scroll is not dropped.
+    # Use the pinned ArtCraft Android winit backend as the single source of truth for
+    # touchscreen multi-touch gestures and hardware touchpad classification. Do not layer a
+    # second centroid tracker in egui-winit or a generic ACTION_SCROLL -> LineDelta shim on top:
+    # both bypass device classification and can turn precise touchpad pixels into wheel notches.
     android_winit = builder / "vendor/winit/src/platform_impl/android/mod.rs"
-    replace_once(
-        android_winit,
-        "use android_activity::input::{InputEvent, KeyAction, Keycode, MotionAction};",
-        "use android_activity::input::{Axis, InputEvent, KeyAction, Keycode, MotionAction};",
-        "Android trackpad scroll axis import",
-    )
-    replace_once(
-        android_winit,
-        "        let redraw_flag = SharedFlag::new();",
-        """        // GameActivity only buffers X/Y motion axes unless explicitly enabled.
-        // Trackpad and mouse scroll arrive on the Vscroll/Hscroll axes.
-        android_app.enable_motion_axis(Axis::Vscroll);
-        android_app.enable_motion_axis(Axis::Hscroll);
-        let redraw_flag = SharedFlag::new();""",
-        "enable Android trackpad scroll axes",
-    )
-    replace_once(
-        android_winit,
-        "                let phase = match motion_event.action() {",
-        """                if motion_event.action() == MotionAction::Scroll {
-                    // ACTION_SCROLL is Android generic mouse/trackpad scroll.
-                    // Keep fractional deltas so precision trackpads remain smooth.
-                    if motion_event.pointer_count() > 0 {
-                        let pointer = motion_event.pointer_at_index(0);
-                        let horizontal = pointer.axis_value(Axis::Hscroll);
-                        let vertical = pointer.axis_value(Axis::Vscroll);
-                        if horizontal.is_finite() && vertical.is_finite()
-                            && (horizontal != 0.0 || vertical != 0.0)
-                        {
-                            callback(
-                                event::Event::WindowEvent {
-                                    window_id,
-                                    event: event::WindowEvent::MouseWheel {
-                                        device_id,
-                                        delta: event::MouseScrollDelta::LineDelta(horizontal, vertical),
-                                        phase: event::TouchPhase::Moved,
-                                    },
-                                },
-                                self.window_target(),
-                            );
-                        }
-                    }
-                    input_status = InputStatus::Handled;
-                } else {
-                let phase = match motion_event.action() {""",
-        "Android ACTION_SCROLL to winit MouseWheel",
-    )
-    replace_once(
-        android_winit,
-        """                    }
-                }
-            },
-            InputEvent::KeyEvent(key) => {""",
-        """                    }
-                }
-                }
-            },
-            InputEvent::KeyEvent(key) => {""",
-        "close Android non-scroll motion branch",
-    )
+    android_device_kind = builder / "vendor/winit/src/platform_impl/android/device_kind.rs"
     require(
         android_winit,
         (
             "android_app.enable_motion_axis(Axis::Vscroll);",
             "android_app.enable_motion_axis(Axis::Hscroll);",
-            "motion_event.action() == MotionAction::Scroll",
-            "event::MouseScrollDelta::LineDelta(horizontal, vertical)",
+            "Classification::TwoFingerSwipe",
+            "Classification::MultiFingerSwipe",
+            "self.recognise_touch_gesture(motion_event)",
+            "device_kind::classify(",
+            "MotionAction::Scroll if pointer_class",
+            "MouseScrollDelta::PixelDelta",
+            "MouseScrollDelta::LineDelta",
+            "TouchPhase::Cancelled",
         ),
-        "Android trackpad scroll adapter",
+        "stable Android touchscreen and touchpad gesture backend",
+    )
+    require(
+        android_device_kind,
+        (
+            "pub(crate) fn classify(source: u32, tool: Tool) -> DeviceKind",
+            "a_touchpad_is_a_pointer_that_scrolls_smoothly",
+            "a_mouse_source_with_a_fingers_tool_is_a_touchpad",
+            "the_glass_is_never_a_pointer",
+        ),
+        "Android mouse/touchpad device classification and tests",
     )
 
     # Android is neither Linux desktop nor a typical Unix filesystem. The upstream
