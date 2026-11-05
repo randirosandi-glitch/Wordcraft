@@ -74,3 +74,72 @@ This is a reusable registry/dispatcher, but it is not yet proven to satisfy ever
 ## Required test IDs
 
 Use stable IDs in the eventual registry, for example `KBD-EDIT-UNDO`, `KBD-CHAR-BOLD`, `KBD-NAV-WORD-LEFT`, `KBD-FIND-NEXT`, and `KBD-TABLE-NEXT-CELL`. The final test list must contain one test reference per registered shortcut and focus-context conflict.
+
+
+## Verified built-in engine bindings (pinned WordCraft v0.15.0)
+
+The following mappings were read directly from the pinned source's `CommandSpec::key` declarations. `Mod` resolves to Ctrl on Android/Windows. These are **engine binding evidence only**; none is a physical-device PASS. Until the new Android-specific regression suite is run, report each as **IMPLEMENTED + NOT TESTED ON DEVICE**.
+
+| Requested chord / behavior | Pinned engine command | Status / caveat |
+|---|---|---|
+| Ctrl+N / O / S / P / W | `file.new/open/save/print/close` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+F4 | `file.close` via Mod+F4 | IMPLEMENTED + NOT TESTED ON DEVICE |
+| F12 Save As | `file.saveAs` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+Shift+S Save As | No Windows binding; Windows uses F12 / Alt+F2 | NOT IMPLEMENTED |
+| Ctrl+Tab switch document | No matching binding found | NOT IMPLEMENTED |
+| Ctrl+Z / Ctrl+Y | `edit.undo/redo` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+X / C / V | `edit.cut/copy/paste` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+Shift+C / Ctrl+Shift+V | `edit.copyFormat/pasteFormat` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+Alt+V | `edit.pasteSpecial` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+Shift+Alt+V | `edit.pasteText` (keep text only) | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+A | `select.all` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+Backspace / Ctrl+Delete | `text.deleteWordBack/deleteWordForward` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+B / I / U | `format.bold/italic/underline` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+Shift+D / W | `format.doubleUnderline/wordUnderline` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+Shift+A / K | `format.allCaps/smallCaps` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+= / Ctrl+Shift+= | `format.subscript/superscript` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+Space | `format.resetChar` (Mod+Space on Android/Windows) | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+L / E / R / J | `para.alignLeft/alignCenter/alignRight/justify` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+M / Ctrl+Shift+M | `para.indent/outdent` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+T / Ctrl+Shift+T | `para.hangingIndent/removeHanging` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+1 / 2 / 5 | `para.single/double/oneAndHalf` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+0 | `para.addSpaceBefore` | IMPLEMENTED + NOT TESTED ON DEVICE; adds space before, not a general spacing dialog |
+| Ctrl+Q | `para.reset` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+Shift+L | `para.bullets` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+Shift+F / P | `format.font/size` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+] / Ctrl+[ | `format.growFont1/shrinkFont1` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+Shift+> / Ctrl+Shift+< | `format.growFont/shrinkFont` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+Alt+1 / 2 / 3 | `para.heading1/heading2/heading3` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+Shift+N | `para.normal` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+Alt+Shift+S | `styles.pane` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Arrow/Home/End/PageUp/PageDown | `caret.*` bindings | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+Left / Ctrl+Right | `caret.wordLeft/wordRight` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+Home / Ctrl+End | `caret.docStart/docEnd` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Shift+arrows and Ctrl+Shift+arrows | Shift-variant dispatch extends caret commands | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+F / Ctrl+H | `edit.find/findReplace` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+G | `edit.findNext`, **not Go To** | CONFLICT — Go To is F5 or Ctrl+Alt+G |
+| F5 | `edit.goto` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Tab / Shift+Tab | `text.tab/backTab` | IMPLEMENTED + NOT TESTED ON DEVICE; list/table focus context still needs device testing |
+| Ctrl+Tab inside table | No matching binding found | NOT IMPLEMENTED |
+| Ctrl+K | `insert.link` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+Alt+M | `review.newComment` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Ctrl+Shift+E | `review.trackChanges` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| Alt+Shift+D / Alt+Shift+T | `insert.dateField/timeField` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| F9 | `references.updateFields` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| F12 | `file.saveAs` | IMPLEMENTED + NOT TESTED ON DEVICE |
+| F4 Repeat last action | No matching binding found | NOT IMPLEMENTED |
+| F6 Cycle panes | No matching binding found | NOT IMPLEMENTED |
+| F8 Selection extension mode | No matching binding found | NOT IMPLEMENTED |
+| F10 menu focus | Only Shift+F10 context-menu handling is present | NOT IMPLEMENTED as plain F10 |
+| F11 Next field | No F11 binding found; Alt+F1 is Next Field | NOT IMPLEMENTED |
+| Insert overtype | No editor overtype command/binding found | NOT IMPLEMENTED |
+| F7 Indonesian proofing | Explicitly excluded by project scope | NOT APPLICABLE |
+
+### Important mapping conflicts
+
+- **Ctrl+G:** the engine assigns it to Find Next. The handover requests Go To. Preserve the current built-in mapping unless a deliberate, documented reassignment is approved; F5 and Ctrl+Alt+G already invoke Go To.
+- **Ctrl+Shift+S:** Save As is F12 / Alt+F2 on Windows in the pinned engine. Do not advertise Ctrl+Shift+S until a tested mapping is added.
+- **Ctrl+Shift+V:** in WordCraft it applies copied formatting. Paste Special is Ctrl+Alt+V; keep-text-only is Ctrl+Shift+Alt+V. Do not relabel these commands.
+- **Ctrl+0:** the command adds space before a paragraph; verify its toggle semantics before claiming exact Microsoft Word parity.
+
+This source mapping narrows implementation work, but Android event delivery, focus contexts, modifier state and actual editor effects still require automated and physical-device regression tests.
