@@ -3,7 +3,7 @@ name: Build WordCraft Android
 on:
   workflow_dispatch:
   push:
-    branches: [main, 'fix/**']
+    branches: [main, 'fix/**', 'migration/**']
 
 permissions:
   contents: read
