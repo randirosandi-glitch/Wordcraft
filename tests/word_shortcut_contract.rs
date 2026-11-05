@@ -58,6 +58,6 @@ fn word_style_conflicts_and_unsupported_function_keys_are_explicit() {
     assert_eq!(keymap.resolve(&registry, "Mod+Alt+V").map(|s| s.id), Some("edit.pasteSpecial"));
     assert_eq!(keymap.resolve(&registry, "Mod+Shift+Alt+V").map(|s| s.id), Some("edit.pasteText"));
     for chord in ["F4", "F6", "F8", "F10", "F11"] {
-        assert_eq!(keymap.resolve(&registry, chord), None, "{chord} is not implemented in the pinned registry");
+        assert_eq!(keymap.resolve(&registry, chord).map(|s| s.id), None, "{chord} is not implemented in the pinned registry");
     }
 }
