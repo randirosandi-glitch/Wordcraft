@@ -3,13 +3,19 @@ name: Build WordCraft Android
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, 'fix/**', 'migration/**']
+    paths:
+      - '.github/workflows/android-apk.yml'
+      - 'scripts/**'
+      - 'assets/android-icon-pack/**'
+      - 'assets/wordcraft-icon.svg'
+      - 'tests/**'
 
 permissions:
   contents: read
 
 concurrency:
-  group: wordcraft-android-build
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -42,22 +48,48 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Align ArtCraft Winit with WordCraft's pinned fork
+      - name: Merge WordCraft IME API with ArtCraft Android gesture backend
         shell: bash
         working-directory: artcraft-android
         run: |
           set -euo pipefail
           tmp="$(mktemp -d)"
+          # Preserve ArtCraft's audited Android backend before replacing Winit with the
+          # WordCraft-pinned fork. The Android module contains the touchscreen two-finger
+          # pan recognizer and hardware touchpad classification that the older fork lacks.
+          cp vendor/winit/src/platform_impl/android/mod.rs "$tmp/artcraft-android-mod.rs"
+          cp vendor/winit/src/platform_impl/android/device_kind.rs "$tmp/artcraft-device-kind.rs"
+
           git clone --filter=blob:none https://github.com/storytold/winit.git "$tmp/winit"
           git -C "$tmp/winit" checkout --detach a517b3846ee8457d84ee4975110bfda6797c44dc
           test "$(git -C "$tmp/winit" rev-parse HEAD)" = "a517b3846ee8457d84ee4975110bfda6797c44dc"
           rm -rf vendor/winit
           mkdir -p vendor/winit
           git -C "$tmp/winit" archive --format=tar HEAD | tar -xf - -C vendor/winit
+
+          # Keep WordCraft's ImeResetCompleted/reset_ime_with_request API while using
+          # ArtCraft's Android-specific event adapter and device classifier.
+          cp "$tmp/artcraft-android-mod.rs" vendor/winit/src/platform_impl/android/mod.rs
+          cp "$tmp/artcraft-device-kind.rs" vendor/winit/src/platform_impl/android/device_kind.rs
           rm -rf "$tmp"
 
-          # ArtCraft's vendored egui-winit handles Android clipboard JNI; this adds the
-          # additional reset event exposed by WordCraft's pinned Winit fork.
+          # WordCraft's Android Window API exposes these IME reset hooks as no-ops.
+          # Preserve that API while retaining ArtCraft's richer Android input backend.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("vendor/winit/src/platform_impl/android/mod.rs")
+          s = p.read_text()
+          needle = "    pub fn set_ime_purpose(&self, _purpose: ImePurpose) {}\n"
+          replacement = needle + "\n    pub fn reset_ime(&self) {}\n\n    #[inline]\n    pub fn reset_ime_with_request(&self, _request_id: u64) {}\n"
+          if s.count(needle) != 1:
+              raise SystemExit("Android Winit IME reset insertion anchor was not unique")
+          if "pub fn reset_ime_with_request" in s:
+              raise SystemExit("Android Winit IME reset API already exists; refusing duplicate")
+          p.write_text(s.replace(needle, replacement, 1))
+          PY
+
+          # Add the reset event from WordCraft's pinned Winit fork to egui-winit's exhaustive
+          # event match; ArtCraft's existing Android clipboard JNI remains untouched.
           python3 - <<'PY'
           from pathlib import Path
           p = Path("vendor/egui-winit/src/lib.rs")
@@ -79,22 +111,16 @@ jobs:
           p.write_text(s)
           PY
 
-          # The upstream scrolling script targets an older canvas layout. Its current-source
-          # equivalent is applied by the audited WordCraft patcher, so skip only this legacy step.
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path("lib/build-common.sh")
-          s = p.read_text()
-          old = 'bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"'
-          new = 'if [[ "$APP" != "wordcraft" ]]; then' + chr(10) + '    bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"' + chr(10) + 'fi'
-          if s.count(old) != 1:
-              raise SystemExit("legacy scrolling hook was not found exactly once")
-          p.write_text(s.replace(old, new, 1))
-          PY
-
           grep -q 'ImeResetCompleted' vendor/winit/src/event.rs
           grep -q 'reset_ime_with_request' vendor/winit/src/window.rs
           grep -q 'ImeResetCompleted' vendor/egui-winit/src/lib.rs
+          grep -q 'pub fn reset_ime(&self)' vendor/winit/src/platform_impl/android/mod.rs
+          grep -q 'pub fn reset_ime_with_request' vendor/winit/src/platform_impl/android/mod.rs
+          grep -q 'Classification::TwoFingerSwipe' vendor/winit/src/platform_impl/android/mod.rs
+          grep -q 'Classification::MultiFingerSwipe' vendor/winit/src/platform_impl/android/mod.rs
+          grep -q 'self.recognise_touch_gesture(motion_event)' vendor/winit/src/platform_impl/android/mod.rs
+          grep -q 'MotionAction::Scroll' vendor/winit/src/platform_impl/android/mod.rs
+          grep -q 'pub(crate) fn classify' vendor/winit/src/platform_impl/android/device_kind.rs
 
       - name: Check out the exact WordCraft release source
         shell: bash
@@ -109,6 +135,11 @@ jobs:
           python3 -m py_compile "$GITHUB_WORKSPACE/workspace/scripts/patch_wordcraft_android.py"
           python3 "$GITHUB_WORKSPACE/workspace/scripts/patch_wordcraft_android.py" \
             "$GITHUB_WORKSPACE/artcraft-android" \
+            "$GITHUB_WORKSPACE/artcraft-android/source/wordcraft"
+          # ArtCraft's scrolling.sh adds request_ime_hide to WordApp. Keep the upstream
+          # constructor and app-wide window-state destructuring exhaustive for that field.
+          python3 -m py_compile "$GITHUB_WORKSPACE/workspace/scripts/fix_wordapp_ime_hide.py"
+          python3 "$GITHUB_WORKSPACE/workspace/scripts/fix_wordapp_ime_hide.py" \
             "$GITHUB_WORKSPACE/artcraft-android/source/wordcraft"
           git -C source/wordcraft diff --check
           git diff --check
@@ -146,8 +177,21 @@ jobs:
         with:
           targets: aarch64-linux-android
 
+      - name: Run WordCraft shortcut contract tests
+        working-directory: artcraft-android
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -D "$GITHUB_WORKSPACE/workspace/tests/word_shortcut_contract.rs" \
+            "$GITHUB_WORKSPACE/artcraft-android/source/wordcraft/crates/engine/tests/word_shortcut_contract.rs"
+          cargo test --locked --manifest-path source/wordcraft/Cargo.toml \
+            -p wordcraft-engine --test word_shortcut_contract
+
       - name: Install ArtCraft build dependency
-        run: python -m pip install --upgrade Pillow
+        run: |
+          python -m pip install --upgrade Pillow
+          sudo apt-get update
+          sudo apt-get install -y librsvg2-bin
 
       - name: Build WordCraft Android APK
         shell: bash
@@ -156,7 +200,8 @@ jobs:
           set -euo pipefail
           # The source is pinned and patched above. ArtCraft supplies the native Android
           # launcher, keyboard/modifier adapter, IME bridge, SAF picker and signed APK packaging.
-          if bash build.sh -wordcraft -tag=v0.15.0 -packagename=ai.storyteller.wordcraft; then
+          if bash build.sh -wordcraft -tag=v0.15.0 -packagename=ai.storyteller.wordcraft \
+            -appicon="$GITHUB_WORKSPACE/workspace/assets/wordcraft-icon.svg"; then
             build_status=0
           else
             build_status=$?

@@ -1,27 +1,45 @@
-# WordCraft Android Enhanced
+# WordCraft Android — integration workspace
 
-Workspace for improving the Android port of WordCraft while keeping the original projects untouched.
+This repository builds and maintains the Android adaptation of the official WordCraft document engine. Source selection, provenance, architecture audits, shortcut status and release evidence are maintained in `docs/`.
 
-## Sources
+## Current source inputs
 
-- Android port: https://github.com/kanaaka/wordcraft-android
-- Upstream WordCraft: https://github.com/storytold/wordcraft
-- Android port package: `ai.storyteller.wordcraft`
-- Target ABI: `arm64-v8a`
+- **WordCraft engine:** https://github.com/storytold/wordcraft
+  - Current CI pin: v0.15.0
+  - Commit: `b47079fc791595fd84bb499d64dcd3f0624ef35a`
+- **Android builder / platform integration:** https://github.com/MostafaXS1/artcraft-android
+  - Current CI pin: `fbb4f66fcc868afdd8303d5227aa81db6a21d7fa`
+- **Winit alignment:** https://github.com/storytold/winit
+  - Commit: `a517b3846ee8457d84ee4975110bfda6797c44dc`
+- **Android package:** `ai.storyteller.wordcraft`
+- **Target ABI:** `arm64-v8a`
+
+The builder is an input/source dependency, not the final owner of this product. Local Android compatibility patches and the final build workflow are maintained here. Do not copy or rename a third-party APK.
 
 ## Build workflow
 
-The GitHub Actions workflow checks out the Android port and its pinned upstream WordCraft source, assembles the Android workspace, builds the APK, verifies the package/ABI/signature, and publishes the APK as a workflow artifact.
+GitHub Actions checks out the exact builder and engine revisions, aligns the pinned Winit source, applies guarded local changes from `scripts/patch_wordcraft_android.py`, builds the ARM64 APK, verifies package/signature/alignment/ABI and uploads the artifact.
 
-Run it from **Actions → Build Android APK → Run workflow**.
+The workflow can be started from **Actions → Build WordCraft Android → Run workflow**. Pushes to `main`, `fix/**` and `migration/**` also run the build.
 
-The APK produced by CI is a test/sideload build. Until a persistent signing key is configured, separate CI runs may use different signing identities; installing a later build over an earlier one may require uninstalling the previous build first. Do not uninstall the existing app until its documents/data are backed up.
+CI PASS proves the build and the checks that the workflow actually executes. It does not prove physical Bluetooth keyboard, IME, trackpad, SAF provider or DOCX round-trip behavior. See `docs/DEVICE_TEST_MATRIX.md`.
 
-## Planned enhancement work
+## Engineering rules
 
-1. Preserve Kanaaka's Android modifier-key handling and existing Android-specific behavior.
-2. Improve Android document open/save integration, prioritizing Google Drive and Storage Access Framework.
-3. Verify Word-style formatting shortcuts on an actual Android keyboard.
-4. Run source and APK verification before sharing any build.
+1. Keep the official WordCraft engine as the document model and command source unless a documented, tested source-selection decision changes it.
+2. Do not import an Android port wholesale without reviewing its code, dependency graph, provenance and license obligations.
+3. Preserve all existing branches and known-good artifacts. Never force-push or rewrite history.
+4. Use guarded patch anchors; fail closed when expected source changes.
+5. Do not register no-op shortcuts. Shortcut status must reflect a real semantic command and a passing relevant test.
+6. Indonesian spell-checking, grammar-checking and proofing are explicitly out of scope. Font discovery remains in scope.
+7. Do not call a build or feature physically verified without device evidence.
 
-No changes are made to either source repository by this workspace.
+## Key documentation
+
+- `docs/SOURCE_SELECTION.md` — candidate scorecard and foundation decision
+- `docs/UPSTREAM_PROVENANCE.md` — exact upstream inputs and local adaptations
+- `docs/ANDROID_AUDIT.md` — architecture and defect audit
+- `docs/WORD_SHORTCUTS.md` — Word-style shortcut inventory and status
+- `docs/IMPLEMENTATION_LOG.md` — work log and commit evidence
+- `docs/DEVICE_TEST_MATRIX.md` — physical device/emulator tests
+- `docs/RELEASE_CHECKLIST.md` — APK verification and release gates
