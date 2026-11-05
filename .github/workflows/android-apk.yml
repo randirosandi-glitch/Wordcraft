@@ -4,12 +4,17 @@ on:
   workflow_dispatch:
   push:
     branches: [main, 'fix/**', 'migration/**']
+    paths:
+      - '.github/workflows/android-apk.yml'
+      - 'scripts/**'
+      - 'assets/android-icon-pack/**'
+      - 'assets/wordcraft-icon.svg'
 
 permissions:
   contents: read
 
 concurrency:
-  group: wordcraft-android-build
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
