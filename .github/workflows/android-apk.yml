@@ -96,7 +96,7 @@ jobs:
           grep -q 'update_modifiers(key.meta_state(), callback);' vendor/winit/src/platform_impl/android/mod.rs
           grep -q 'android_app.enable_motion_axis(Axis::Vscroll);' vendor/winit/src/platform_impl/android/mod.rs
 
-      - name: Check out the exact WordCraft release source      - name: Check out the exact WordCraft release source
+      - name: Check out the exact WordCraft release source
         shell: bash
         working-directory: artcraft-android
         run: |
