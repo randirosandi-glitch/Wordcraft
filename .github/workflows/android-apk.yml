@@ -149,6 +149,19 @@ jobs:
       - name: Install ArtCraft build dependency
         run: python -m pip install --upgrade Pillow
 
+      - name: Prepare transparent WordCraft launcher icon
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode workspace/assets/wordcraft-icon.webp.base64 > workspace/assets/wordcraft-icon.webp
+          python - <<'PY'
+          from PIL import Image
+          icon = Image.open("workspace/assets/wordcraft-icon.webp").convert("RGBA")
+          if icon.size != (256, 256) or icon.getpixel((0, 0))[3] != 0:
+              raise SystemExit("WordCraft icon is invalid or its corners are not transparent")
+          print(f"Verified transparent WordCraft icon: {icon.size}")
+          PY
+
       - name: Build WordCraft Android APK
         shell: bash
         working-directory: artcraft-android
