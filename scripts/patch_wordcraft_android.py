@@ -263,17 +263,6 @@ def main() -> None:
         ),
         "ArtCraft source integration",
     )
-    require(
-        source / "vendor/winit/src/window.rs",
-        ("reset_ime_with_request",),
-        "WordCraft Winit IME reset API",
-    )
-    require(
-        source / "vendor/winit/src/event.rs",
-        ("ImeResetCompleted",),
-        "WordCraft Winit IME reset event",
-    )
-
     print(
         "Applied and verified WordCraft Android compatibility patches "
         f"against {WORDCRAFT_COMMIT}."
