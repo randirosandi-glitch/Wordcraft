@@ -60,192 +60,7 @@ def main() -> None:
 
     common = builder / "lib/build-common.sh"
 
-    # Android's InputConnection can report one physical key through both the IME bridge
-    # (commit/delete/editor action) and GameActivity's native key queue. Route handled
-    # editing keys through exactly one path, while leaving navigation/modifier keys native.
     activity = builder / "templates/android/SafActivity.java"
-    replace_once(
-        activity,
-        """                            imeKeySynthesized.add(event.getKeyCode());
-                            return super.sendKeyEvent(event);""",
-        """                            boolean physicalKeyboardEvent =
-                                    event.getDeviceId() != android.view.KeyCharacterMap.VIRTUAL_KEYBOARD
-                                    && event.isFromSource(android.view.InputDevice.SOURCE_KEYBOARD);
-                            if (physicalKeyboardEvent) {
-                                // Hardware keys belong to WordCraft's native key dispatcher.
-                                // Do not translate Backspace/Delete into IME DeleteSurrounding:
-                                // that IME operation intentionally does not join paragraph marks.
-                                // Forward the event to the host view; its onKeyDown/onKeyUp lets
-                                // physical keys fall through to GameActivity and winit.
-                                return super.sendKeyEvent(event);
-                            }
-                            // Only virtual-IME synthesized keys are represented by queued IME
-                            // events. Consume their forwarded Android key pair to avoid duplicates.
-                            imeKeySynthesized.add(event.getKeyCode());
-                            return super.sendKeyEvent(event);""",
-        "deduplicate physical editing keys forwarded through Android IME",
-    )
-    replace_once(
-        activity,
-        """    private final java.util.Set<Integer> imeKeySynthesized = java.util.Collections.synchronizedSet(new java.util.HashSet<>());""",
-        """    private final java.util.Set<Integer> imeKeySynthesized = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
-    // Space and Enter may each arrive through two different InputConnection callbacks for one
-    // physical press. Suppress only cross-callback pairs; repeated calls from the same source
-    // remain valid key repeats / deliberate rapid taps.
-    private static final long IME_TEXT_PAIR_MS = 50L;
-    private volatile long lastImeSpaceCommitAt = 0L;
-    private volatile long lastImeSpaceKeyAt = 0L;
-    private volatile long lastImeEnterActionAt = 0L;
-    private volatile long lastImeEnterKeyAt = 0L;""",
-        "Android IME cross-callback deduplication state",
-    )
-    replace_once(
-        activity,
-        """                            if (text != null && text.length() > 0) {
-                                queueImeEvent("c" + text);
-                            }""",
-        """                            if (text != null && text.length() > 0) {
-                                if (!" ".contentEquals(text) || claimImeSpace("commit")) {
-                                    queueImeEvent("c" + text);
-                                }
-                            }""",
-        "deduplicate IME space commits",
-    )
-    replace_once(
-        activity,
-        """                                } else if (code == KeyEvent.KEYCODE_ENTER) {
-                                    queueImeEvent("a6");
-                                }""",
-        """                                } else if (code == KeyEvent.KEYCODE_ENTER) {
-                                    if (claimImeEnter("key")) {
-                                        queueImeEvent("a6");
-                                    }
-                                } else if (code == KeyEvent.KEYCODE_SPACE
-                                        && event.getDeviceId() != android.view.KeyCharacterMap.VIRTUAL_KEYBOARD
-                                        && event.isFromSource(android.view.InputDevice.SOURCE_KEYBOARD)) {
-                                    if (claimImeSpace("key")) {
-                                        queueImeEvent("c ");
-                                    }
-                                }""",
-        "deduplicate physical space and Enter key events",
-    )
-    replace_once(
-        activity,
-        """                        public boolean performEditorAction(int actionCode) {
-                            queueImeEvent("a" + actionCode);
-                            return super.performEditorAction(actionCode);
-                        }""",
-        """                        public boolean performEditorAction(int actionCode) {
-                            if (actionCode != 0 && claimImeEnter("action")) {
-                                queueImeEvent("a" + actionCode);
-                            }
-                            return super.performEditorAction(actionCode);
-                        }""",
-        "deduplicate Enter editor-action callbacks",
-    )
-    replace_once(
-        activity,
-        """    private boolean claimDelete(String method) {""",
-        """    private boolean claimImeSpace(String method) {
-        long now = android.os.SystemClock.uptimeMillis();
-        long lastOther = "commit".equals(method) ? lastImeSpaceKeyAt : lastImeSpaceCommitAt;
-        if (lastOther != 0L && now - lastOther < IME_TEXT_PAIR_MS) {
-            if ("commit".equals(method)) lastImeSpaceKeyAt = 0L;
-            else lastImeSpaceCommitAt = 0L;
-            return false;
-        }
-        if ("commit".equals(method)) lastImeSpaceCommitAt = now;
-        else lastImeSpaceKeyAt = now;
-        return true;
-    }
-
-    private boolean claimImeEnter(String method) {
-        long now = android.os.SystemClock.uptimeMillis();
-        long lastOther = "action".equals(method) ? lastImeEnterKeyAt : lastImeEnterActionAt;
-        if (lastOther != 0L && now - lastOther < IME_TEXT_PAIR_MS) {
-            if ("action".equals(method)) lastImeEnterKeyAt = 0L;
-            else lastImeEnterActionAt = 0L;
-            return false;
-        }
-        if ("action".equals(method)) lastImeEnterActionAt = now;
-        else lastImeEnterKeyAt = now;
-        return true;
-    }
-
-    private boolean claimDelete(String method) {""",
-        "Android IME cross-callback deduplication helpers",
-    )
-
-    # Coalesce Android IME wake-ups. A single key can produce commit/preedit/finish
-    # callbacks, but the Rust bridge drains the entire queue in one frame. Waking the
-    # GameActivity looper for every callback floods its native key queue and adds input lag.
-    replace_once(
-        activity,
-        "import java.util.concurrent.TimeUnit;",
-        "import java.util.concurrent.TimeUnit;\nimport java.util.concurrent.atomic.AtomicBoolean;",
-        "IME wake coalescing import",
-    )
-    replace_once(
-        activity,
-        '    private final ConcurrentLinkedQueue<String> imeEvents = new ConcurrentLinkedQueue<>();',
-        '    private final ConcurrentLinkedQueue<String> imeEvents = new ConcurrentLinkedQueue<>();\n    private final AtomicBoolean imeWakePending = new AtomicBoolean(false);',
-        "IME wake coalescing state",
-    )
-    replace_once(
-        activity,
-        """    private void queueImeEvent(String event) {
-        imeEvents.offer(event);
-        try {
-            super.onKeyDown(
-                    KeyEvent.KEYCODE_UNKNOWN,
-                    new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_UNKNOWN));
-            super.onKeyUp(
-                    KeyEvent.KEYCODE_UNKNOWN,
-                    new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_UNKNOWN));
-        } catch (Throwable error) {
-            Log.w(TAG, "Could not wake the native loop for a keyboard event", error);
-        }
-    }""",
-        """    private void wakeImeLoop() {
-        try {
-            super.onKeyDown(
-                    KeyEvent.KEYCODE_UNKNOWN,
-                    new KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_UNKNOWN));
-            super.onKeyUp(
-                    KeyEvent.KEYCODE_UNKNOWN,
-                    new KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_UNKNOWN));
-        } catch (Throwable error) {
-            Log.w(TAG, "Could not wake the native loop for a keyboard event", error);
-        }
-    }
-
-    private void queueImeEvent(String event) {
-        imeEvents.offer(event);
-        if (imeWakePending.compareAndSet(false, true)) {
-            wakeImeLoop();
-        }
-    }""",
-        "coalesce Android IME native-loop wake-ups",
-    )
-    replace_once(
-        activity,
-        """    public String imePoll() {
-        return imeEvents.poll();
-    }""",
-        """    public String imePoll() {
-        String event = imeEvents.poll();
-        if (event == null) {
-            // Close the enqueue/poll race: if a producer added an event while the wake flag
-            // was still set, arrange one fresh wake after clearing it.
-            imeWakePending.set(false);
-            if (!imeEvents.isEmpty() && imeWakePending.compareAndSet(false, true)) {
-                wakeImeLoop();
-            }
-        }
-        return event;
-    }""",
-        "race-safe IME wake reset",
-    )
 
     # The Android shell must not synthesize ordinary clipboard events for
     # Ctrl+Shift+C/V: WordCraft already binds those exact chords to Copy/Paste Formatting.
@@ -381,6 +196,7 @@ def main() -> None:
                     delta: egui::Vec2::ZERO,
                     phase: egui::TouchPhase::Start,
                     modifiers: self.modifiers,
+                    source: egui::MouseWheelSource::Unknown,
                 });
             } else if let Some(previous) = self.two_finger_scroll_last_centroid {
                 let delta = centroid - previous;
@@ -390,6 +206,7 @@ def main() -> None:
                         delta,
                         phase: egui::TouchPhase::Move,
                         modifiers: self.modifiers,
+                        source: egui::MouseWheelSource::Unknown,
                     });
                 }
                 self.two_finger_scroll_last_centroid = Some(centroid);
@@ -402,6 +219,7 @@ def main() -> None:
                 delta: egui::Vec2::ZERO,
                 phase: egui::TouchPhase::End,
                 modifiers: self.modifiers,
+                source: egui::MouseWheelSource::Unknown,
             });
             self.pointer_pos_in_points = None;
             self.egui_input.events.push(egui::Event::PointerGone);
@@ -458,44 +276,6 @@ def main() -> None:
 ''',
         "keep the scroll hit target under the two-finger centroid",
     )
-    # The generated launcher is kept in the source checkout. Bump its marker whenever its
-    # generated Rust changes, so a reused checkout cannot keep an older incompatible wrapper.
-    replace_once(
-        common,
-        'GENERATOR_VERSION = "61"',
-        'GENERATOR_VERSION = "64"',
-        "launcher generator version",
-    )
-
-    # WordCraft's current API requires both Context and RawInput. Other ArtCraft apps retain
-    # their existing one-argument hook contract.
-    replace_once(
-        common,
-        '''        if has_raw_hook:
-            inner_hook = "let _ = ctx;\\n        self.inner.raw_input_hook(raw);"''',
-        '''        if has_raw_hook:
-            if app == "wordcraft":
-                inner_hook = "self.inner.raw_input_hook(ctx, raw);"
-            else:
-                inner_hook = "let _ = ctx;\\n        self.inner.raw_input_hook(raw);"''',
-        "WordCraft raw_input_hook adapter",
-    )
-
-    # WordCraft's Printer API has a label field; omitting it caused E0063.
-    replace_once(
-        common,
-        '''            let _ = tx.send(vec![wordcraft_ui_egui::printing::Printer {
-                name: "Android print system".to_owned(),
-                default: true,
-            }]);''',
-        '''            let _ = tx.send(vec![wordcraft_ui_egui::printing::Printer {
-                name: "Android print system".to_owned(),
-                label: "Android print system".to_owned(),
-                default: true,
-            }]);''',
-        "WordCraft Android printer",
-    )
-
     # The 0.37 egui-winit Git dependency uses its in-app fallback clipboard on Android.
     # Forward CopyText to Android ClipboardManager, and inject a SAF bridge callback for
     # WordCraft's ribbon/context-menu Paste commands.
@@ -748,12 +528,12 @@ fn handle_primary_pointer(
         "    public String safPoll() { return results.poll(); }",
         """    private void enqueueSafResult(String value) {
         results.offer(value);
-        runOnUiThread(this::wakeImeLoop);
+        wakeNativeLoop();
     }
 
     private void enqueueIntentPath(String value) {
         intentPaths.offer(value);
-        runOnUiThread(this::wakeImeLoop);
+        wakeNativeLoop();
     }
 
     public String safPoll() { return results.poll(); }""",
@@ -775,19 +555,15 @@ fn handle_primary_pointer(
     require(
         activity,
         (
-            "boolean physicalKeyboardEvent =",
-            "if (physicalKeyboardEvent)",
-            "Hardware keys belong to WordCraft's native key dispatcher.",
-            "imeKeySynthesized.add(event.getKeyCode());",
-            'claimImeSpace("commit")',
-            'claimImeEnter("action")',
-            "imeWakePending.compareAndSet(false, true)",
-            "private void wakeImeLoop()",
+            "private static boolean isFromSoftKeyboard(KeyEvent event)",
+            "private final class ObservableEditable extends SpannableStringBuilder",
+            "public Editable getEditable()",
+            "private void wakeNativeLoop()",
             "private void enqueueSafResult(String value)",
             "private void enqueueIntentPath(String value)",
-            "runOnUiThread(this::wakeImeLoop)",
+            "wakeNativeLoop();",
         ),
-        "Android physical editing-key deduplication",
+        "Upstream Android IME and WordCraft SAF wake integration",
     )
     require(
         egui_winit,
@@ -804,7 +580,7 @@ fn handle_primary_pointer(
         common,
         (
             "modifiers.shift || modifiers.alt",
-            'GENERATOR_VERSION = "64"',
+            'GENERATOR_VERSION = "71"',
             "self.inner.raw_input_hook(ctx, raw);",
             'label: "Android print system".to_owned(),',
             "android_clipboard_set(&self.app, &text);",
@@ -855,79 +631,6 @@ fn handle_primary_pointer(
         "WordCraft two-finger scroll gesture guard",
     )
 
-    # Android GameActivity only buffers X/Y axes by default. Enable the two scroll axes,
-    # then translate ACTION_SCROLL into winit MouseWheel so trackpad/mouse scroll is not dropped.
-    android_winit = builder / "vendor/winit/src/platform_impl/android/mod.rs"
-    replace_once(
-        android_winit,
-        "use android_activity::input::{InputEvent, KeyAction, Keycode, MotionAction};",
-        "use android_activity::input::{Axis, InputEvent, KeyAction, Keycode, MotionAction};",
-        "Android trackpad scroll axis import",
-    )
-    replace_once(
-        android_winit,
-        "        let redraw_flag = SharedFlag::new();",
-        """        // GameActivity only buffers X/Y motion axes unless explicitly enabled.
-        // Trackpad and mouse scroll arrive on the Vscroll/Hscroll axes.
-        android_app.enable_motion_axis(Axis::Vscroll);
-        android_app.enable_motion_axis(Axis::Hscroll);
-        let redraw_flag = SharedFlag::new();""",
-        "enable Android trackpad scroll axes",
-    )
-    replace_once(
-        android_winit,
-        "                let phase = match motion_event.action() {",
-        """                if motion_event.action() == MotionAction::Scroll {
-                    // ACTION_SCROLL is Android generic mouse/trackpad scroll.
-                    // Keep fractional deltas so precision trackpads remain smooth.
-                    if motion_event.pointer_count() > 0 {
-                        let pointer = motion_event.pointer_at_index(0);
-                        let horizontal = pointer.axis_value(Axis::Hscroll);
-                        let vertical = pointer.axis_value(Axis::Vscroll);
-                        if horizontal.is_finite() && vertical.is_finite()
-                            && (horizontal != 0.0 || vertical != 0.0)
-                        {
-                            callback(
-                                event::Event::WindowEvent {
-                                    window_id,
-                                    event: event::WindowEvent::MouseWheel {
-                                        device_id,
-                                        delta: event::MouseScrollDelta::LineDelta(horizontal, vertical),
-                                        phase: event::TouchPhase::Moved,
-                                    },
-                                },
-                                self.window_target(),
-                            );
-                        }
-                    }
-                    input_status = InputStatus::Handled;
-                } else {
-                let phase = match motion_event.action() {""",
-        "Android ACTION_SCROLL to winit MouseWheel",
-    )
-    replace_once(
-        android_winit,
-        """                    }
-                }
-            },
-            InputEvent::KeyEvent(key) => {""",
-        """                    }
-                }
-                }
-            },
-            InputEvent::KeyEvent(key) => {""",
-        "close Android non-scroll motion branch",
-    )
-    require(
-        android_winit,
-        (
-            "android_app.enable_motion_axis(Axis::Vscroll);",
-            "android_app.enable_motion_axis(Axis::Hscroll);",
-            "motion_event.action() == MotionAction::Scroll",
-            "event::MouseScrollDelta::LineDelta(horizontal, vertical)",
-        ),
-        "Android trackpad scroll adapter",
-    )
     print(
         "Applied and verified WordCraft Android compatibility patches "
         f"against {WORDCRAFT_COMMIT}."
