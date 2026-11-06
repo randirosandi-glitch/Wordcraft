@@ -42,59 +42,21 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Preserve WordCraft's ordered IME reset API on current ArtCraft Winit
+      - name: Verify upstream Android input and gesture integration
         shell: bash
         working-directory: artcraft-android
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          # Keep ArtCraft's current Android Winit implementation (modifier tracking,
-          # touchpad scrolling and Android lifecycle fixes). Add only the public API
-          # required by WordCraft's pinned Winit fork; the Android backend already
-          # implements reset_ime_with_request().
-          window = Path("vendor/winit/src/window.rs")
-          source = window.read_text()
-          anchor = '    /// Sets the IME purpose for the window using [`ImePurpose`].'
-          method = """    #[inline]
-              pub fn reset_ime_with_request(&self, request_id: u64) {
-                  let _span = tracing::debug_span!("winit::Window::reset_ime_with_request").entered();
-                  self.window.maybe_queue_on_main(move |w| w.reset_ime_with_request(request_id))
-              }
-
-          """
-          if method not in source:
-              if source.count(anchor) != 1:
-                  raise SystemExit("Could not find the unique Winit IME-purpose insertion point")
-              source = source.replace(anchor, method + anchor, 1)
-              window.write_text(source)
-
-          android = Path("vendor/winit/src/platform_impl/android/mod.rs").read_text()
-          if "pub fn reset_ime_with_request(&self, _request_id: u64)" not in android:
-              raise SystemExit("Current ArtCraft Android Winit is missing its IME reset backend")
-          if "pub fn reset_ime_with_request(&self, request_id: u64)" not in window.read_text():
-              raise SystemExit("WordCraft public Winit IME reset API was not installed")
-
-          # The upstream egui-winit already ignores this control event; add its diagnostic name.
-          p = Path("vendor/egui-winit/src/lib.rs")
-          s = p.read_text()
-          if "WindowEvent::ImeResetCompleted { .. } => EventResponse" not in s:
-              raise SystemExit("Current ArtCraft egui-winit does not handle ImeResetCompleted")
-          needle = 'WindowEvent::PanGesture { .. } => "WindowEvent::PanGesture",'
-          event_name = 'WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted"'
-          if event_name not in s:
-              if s.count(needle) != 1:
-                  raise SystemExit("egui-winit event-name anchor was not unique")
-              s = s.replace(needle, needle + chr(10) + "        " + event_name + ",", 1)
-          p.write_text(s)
-          PY
-
-          grep -q 'ImeResetCompleted' vendor/winit/src/event.rs
-          grep -q 'reset_ime_with_request' vendor/winit/src/window.rs
-          grep -q 'ImeResetCompleted' vendor/egui-winit/src/lib.rs
+          grep -q 'fn recognise_touch_gesture(' vendor/winit/src/platform_impl/android/mod.rs
+          grep -q 'GestureStep::Pan' vendor/winit/src/platform_impl/android/mod.rs
           grep -q 'update_modifiers(key.meta_state(), callback);' vendor/winit/src/platform_impl/android/mod.rs
           grep -q 'android_app.enable_motion_axis(Axis::Vscroll);' vendor/winit/src/platform_impl/android/mod.rs
+          grep -q 'bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"' lib/build-common.sh
+          grep -q 'reset_ime_with_request' lib/build-common.sh
+          grep -q 'ImeResetCompleted' vendor/winit/src/event.rs
+          grep -q 'ImeResetCompleted' vendor/egui-winit/src/lib.rs
+          grep -q 'ObservableEditable' templates/android/SafActivity.java
+          grep -q 'isFromSoftKeyboard(KeyEvent event)' templates/android/SafActivity.java
 
       - name: Check out the exact WordCraft release source
         shell: bash
