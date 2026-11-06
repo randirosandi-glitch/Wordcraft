@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: MostafaXS1/artcraft-android
-          ref: fbb4f66fcc868afdd8303d5227aa81db6a21d7fa
+          ref: 52308fbcb26d8d8625f35fc1f048813f8e1e12a8
           path: artcraft-android
 
       - name: Set up Python
@@ -42,61 +42,61 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Align ArtCraft Winit with WordCraft's pinned fork
+      - name: Preserve WordCraft's ordered IME reset API on current ArtCraft Winit
         shell: bash
         working-directory: artcraft-android
         run: |
           set -euo pipefail
-          tmp="$(mktemp -d)"
-          git clone --filter=blob:none https://github.com/storytold/winit.git "$tmp/winit"
-          git -C "$tmp/winit" checkout --detach a517b3846ee8457d84ee4975110bfda6797c44dc
-          test "$(git -C "$tmp/winit" rev-parse HEAD)" = "a517b3846ee8457d84ee4975110bfda6797c44dc"
-          rm -rf vendor/winit
-          mkdir -p vendor/winit
-          git -C "$tmp/winit" archive --format=tar HEAD | tar -xf - -C vendor/winit
-          rm -rf "$tmp"
-
-          # ArtCraft's vendored egui-winit handles Android clipboard JNI; this adds the
-          # additional reset event exposed by WordCraft's pinned Winit fork.
           python3 - <<'PY'
           from pathlib import Path
+
+          # Keep ArtCraft's current Android Winit implementation (modifier tracking,
+          # touchpad scrolling and Android lifecycle fixes). Add only the public API
+          # required by WordCraft's pinned Winit fork; the Android backend already
+          # implements reset_ime_with_request().
+          window = Path("vendor/winit/src/window.rs")
+          source = window.read_text()
+          anchor = '    /// Sets the IME purpose for the window using [`ImePurpose`].'
+          method = """    #[inline]
+              pub fn reset_ime_with_request(&self, request_id: u64) {
+                  let _span = tracing::debug_span!("winit::Window::reset_ime_with_request").entered();
+                  self.window.maybe_queue_on_main(move |w| w.reset_ime_with_request(request_id))
+              }
+
+          """
+          if method not in source:
+              if source.count(anchor) != 1:
+                  raise SystemExit("Could not find the unique Winit IME-purpose insertion point")
+              source = source.replace(anchor, method + anchor, 1)
+              window.write_text(source)
+
+          android = Path("vendor/winit/src/platform_impl/android/mod.rs").read_text()
+          if "pub fn reset_ime_with_request(&self, _request_id: u64)" not in android:
+              raise SystemExit("Current ArtCraft Android Winit is missing its IME reset backend")
+          if "pub fn reset_ime_with_request(&self, request_id: u64)" not in window.read_text():
+              raise SystemExit("WordCraft public Winit IME reset API was not installed")
+
+          # The upstream egui-winit already ignores this control event; add its diagnostic name.
           p = Path("vendor/egui-winit/src/lib.rs")
           s = p.read_text()
-          old = '''            WindowEvent::ActivationTokenDone { .. }
-                      | WindowEvent::AxisMotion { .. }
-                      | WindowEvent::DoubleTapGesture { .. } => EventResponse {'''
-          new = '''            WindowEvent::ActivationTokenDone { .. }
-                      | WindowEvent::AxisMotion { .. }
-                      | WindowEvent::DoubleTapGesture { .. }
-                      | WindowEvent::ImeResetCompleted { .. } => EventResponse {'''
-          if s.count(old) != 1:
-              raise SystemExit("egui-winit ignored-event anchor was not unique")
-          s = s.replace(old, new, 1)
+          if "WindowEvent::ImeResetCompleted { .. } => EventResponse" not in s:
+              raise SystemExit("Current ArtCraft egui-winit does not handle ImeResetCompleted")
           needle = 'WindowEvent::PanGesture { .. } => "WindowEvent::PanGesture",'
-          if s.count(needle) != 1:
-              raise SystemExit("egui-winit event-name anchor was not unique")
-          s = s.replace(needle, needle + chr(10) + '        WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted",', 1)
+          event_name = 'WindowEvent::ImeResetCompleted { .. } => "WindowEvent::ImeResetCompleted"'
+          if event_name not in s:
+              if s.count(needle) != 1:
+                  raise SystemExit("egui-winit event-name anchor was not unique")
+              s = s.replace(needle, needle + chr(10) + "        " + event_name + ",", 1)
           p.write_text(s)
-          PY
-
-          # The upstream scrolling script targets an older canvas layout. Its current-source
-          # equivalent is applied by the audited WordCraft patcher, so skip only this legacy step.
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path("lib/build-common.sh")
-          s = p.read_text()
-          old = 'bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"'
-          new = 'if [[ "$APP" != "wordcraft" ]]; then' + chr(10) + '    bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"' + chr(10) + 'fi'
-          if s.count(old) != 1:
-              raise SystemExit("legacy scrolling hook was not found exactly once")
-          p.write_text(s.replace(old, new, 1))
           PY
 
           grep -q 'ImeResetCompleted' vendor/winit/src/event.rs
           grep -q 'reset_ime_with_request' vendor/winit/src/window.rs
           grep -q 'ImeResetCompleted' vendor/egui-winit/src/lib.rs
+          grep -q 'update_modifiers(key.meta_state(), callback);' vendor/winit/src/platform_impl/android/mod.rs
+          grep -q 'android_app.enable_motion_axis(Axis::Vscroll);' vendor/winit/src/platform_impl/android/mod.rs
 
-      - name: Check out the exact WordCraft release source
+      - name: Check out the exact WordCraft release source      - name: Check out the exact WordCraft release source
         shell: bash
         working-directory: artcraft-android
         run: |
@@ -156,7 +156,7 @@ jobs:
           set -euo pipefail
           # The source is pinned and patched above. ArtCraft supplies the native Android
           # launcher, keyboard/modifier adapter, IME bridge, SAF picker and signed APK packaging.
-          if bash build.sh -wordcraft -tag=v0.15.0 -packagename=ai.storyteller.wordcraft; then
+          if bash build.sh -wordcraft -tag=v0.15.0 -packagename=ai.storyteller.wordcraft -appicon="$GITHUB_WORKSPACE/workspace/assets/wordcraft-icon.webp"; then
             build_status=0
           else
             build_status=$?
@@ -170,6 +170,8 @@ jobs:
           grep -F 'self.handle_clipboard_shortcuts(raw);' "$generated"
           grep -F 'ACTION_OPEN_DOCUMENT' templates/android/SafActivity.java
           grep -F 'ACTION_CREATE_DOCUMENT' templates/android/SafActivity.java
+          grep -F 'ObservableEditable' templates/android/SafActivity.java
+          grep -F 'isFromSoftKeyboard(KeyEvent event)' templates/android/SafActivity.java
 
           if (( build_status != 0 )); then
             exit "$build_status"
