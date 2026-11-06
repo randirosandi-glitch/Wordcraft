@@ -75,195 +75,9 @@ def main() -> None:
         "preserve WordCraft formatting clipboard shortcuts",
     )
 
-    # egui-winit's previous Android touch tracker cleared the first finger whenever a
-    # second, distinct finger started, so the multi-touch branch could never be reached.
-    # Track all active fingers and synthesize MouseWheel events from the two-finger centroid.
-    egui_winit = builder / "vendor/egui-winit/src/lib.rs"
-    replace_once(
-        egui_winit,
-        '''    gesture_touch_ids: Vec<u64>,
-''',
-        '''    gesture_touch_ids: Vec<u64>,
-    /// Active Android touch positions for two-finger document scrolling.
-    gesture_touch_positions: Vec<(u64, egui::Pos2)>,
-    two_finger_scroll_last_centroid: Option<egui::Pos2>,
-    two_finger_scroll_active: bool,
-''',
-        "Android two-finger scroll state",
-    )
-    replace_once(
-        egui_winit,
-        '''            gesture_touch_ids: Vec::new(),
-''',
-        '''            gesture_touch_ids: Vec::new(),
-            gesture_touch_positions: Vec::new(),
-            two_finger_scroll_last_centroid: None,
-            two_finger_scroll_active: false,
-''',
-        "Android two-finger scroll initialization",
-    )
-    replace_once(
-        egui_winit,
-        '''        // Keep track of which fingers make up the current gesture. A finger we have not seen before
-        // begins a fresh gesture, so the set resets to just that finger; a finger already in the
-        // set is another finger of the gesture in progress and is added. Two or more means
-        // multi-touch. A lifted finger is dropped, so a gesture that ends can never leave the set
-        // (and the pointer suppression) stuck on. See \x60gesture_touch_ids\x60 for why both a reset on
-        // \x60Started\x60 and a prune on \x60Ended\x60 are needed.
-        match touch.phase {
-            winit::event::TouchPhase::Started => {
-                if !self.gesture_touch_ids.contains(&touch.id) {
-                    self.gesture_touch_ids.clear();
-                }
-                self.gesture_touch_ids.push(touch.id);
-            }
-            winit::event::TouchPhase::Ended | winit::event::TouchPhase::Cancelled => {
-                self.gesture_touch_ids.retain(|id| *id != touch.id);
-            }
-            winit::event::TouchPhase::Moved => {}
-        }
+    # Two-finger touch, trackpad scroll, gesture takeover and Android momentum are handled
+    # by ArtCraft's current vendored Winit backend and lib/scrolling.sh. Do not duplicate them here.
 
-        // Emit touch event
-''',
-        '''        // Keep the active finger set until each finger lifts. A new finger joins the
-        // current gesture; it must not clear the first finger or multi-touch is never detected.
-        let pos = egui::pos2(
-            touch.location.x as f32 / pixels_per_point,
-            touch.location.y as f32 / pixels_per_point,
-        );
-        match touch.phase {
-            winit::event::TouchPhase::Started => {
-                if !self.gesture_touch_ids.contains(&touch.id) {
-                    self.gesture_touch_ids.push(touch.id);
-                }
-                if let Some((_, old_pos)) = self.gesture_touch_positions.iter_mut().find(|(id, _)| *id == touch.id) {
-                    *old_pos = pos;
-                } else {
-                    self.gesture_touch_positions.push((touch.id, pos));
-                }
-            }
-            winit::event::TouchPhase::Moved => {
-                if let Some((_, old_pos)) = self.gesture_touch_positions.iter_mut().find(|(id, _)| *id == touch.id) {
-                    *old_pos = pos;
-                }
-            }
-            winit::event::TouchPhase::Ended | winit::event::TouchPhase::Cancelled => {
-                self.gesture_touch_ids.retain(|id| *id != touch.id);
-                self.gesture_touch_positions.retain(|(id, _)| *id != touch.id);
-            }
-        }
-
-        // Emit touch event
-''',
-        "Android active touch tracking",
-    )
-    replace_once(
-        egui_winit,
-        '''            pos: egui::pos2(
-                touch.location.x as f32 / pixels_per_point,
-                touch.location.y as f32 / pixels_per_point,
-            ),
-''',
-        '''            pos,
-''',
-        "Android touch position reuse",
-    )
-    replace_once(
-        egui_winit,
-        '''        });
-
-        // A multi-finger gesture (two-finger scroll or pinch) must not also act on the pointer:
-''',
-        '''        });
-
-        // Turn the movement of two active fingers into a normal egui scroll-wheel stream.
-        // Use the centroid so both fingers contribute equally; the gesture never reaches the
-        // document as a text-selection drag or an accidental pinch zoom.
-        let active_positions = self
-            .gesture_touch_ids
-            .iter()
-            .take(2)
-            .filter_map(|id| self.gesture_touch_positions.iter().find(|(touch_id, _)| touch_id == id).map(|(_, p)| *p))
-            .collect::<Vec<_>>();
-        if active_positions.len() >= 2 {
-            let centroid = (active_positions[0].to_vec2() + active_positions[1].to_vec2()) * 0.5;
-            let centroid = egui::pos2(centroid.x, centroid.y);
-            if !self.two_finger_scroll_active {
-                self.two_finger_scroll_active = true;
-                self.two_finger_scroll_last_centroid = Some(centroid);
-                self.egui_input.events.push(egui::Event::MouseWheel {
-                    unit: egui::MouseWheelUnit::Point,
-                    delta: egui::Vec2::ZERO,
-                    phase: egui::TouchPhase::Start,
-                    modifiers: self.modifiers,
-                    source: egui::MouseWheelSource::Unknown,
-                });
-            } else if let Some(previous) = self.two_finger_scroll_last_centroid {
-                let delta = centroid - previous;
-                if delta != egui::Vec2::ZERO {
-                    self.egui_input.events.push(egui::Event::MouseWheel {
-                        unit: egui::MouseWheelUnit::Point,
-                        delta,
-                        phase: egui::TouchPhase::Move,
-                        modifiers: self.modifiers,
-                        source: egui::MouseWheelSource::Unknown,
-                    });
-                }
-                self.two_finger_scroll_last_centroid = Some(centroid);
-            }
-        } else if self.two_finger_scroll_active {
-            self.two_finger_scroll_active = false;
-            self.two_finger_scroll_last_centroid = None;
-            self.egui_input.events.push(egui::Event::MouseWheel {
-                unit: egui::MouseWheelUnit::Point,
-                delta: egui::Vec2::ZERO,
-                phase: egui::TouchPhase::End,
-                modifiers: self.modifiers,
-                source: egui::MouseWheelSource::Unknown,
-            });
-            self.pointer_pos_in_points = None;
-            self.egui_input.events.push(egui::Event::PointerGone);
-        }
-
-        // A multi-finger gesture (two-finger scroll or pinch) must not also act on the pointer:
-''',
-        "Android two-finger scroll wheel synthesis",
-    )
-    replace_once(
-        egui_winit,
-        '''            if self.pointer_touch_id.is_some() {
-                self.pointer_touch_id = None;
-                self.on_mouse_button_input(
-                    winit::event::ElementState::Released,
-                    winit::event::MouseButton::Left,
-                );
-            }
-''',
-        '''            if let Some(pointer_id) = self.pointer_touch_id.take() {
-                let pointer_pos = self
-                    .gesture_touch_positions
-                    .iter()
-                    .find(|(id, _)| *id == pointer_id)
-                    .map(|(_, p)| *p)
-                    .unwrap_or(pos);
-                self.egui_input.events.push(egui::Event::Touch {
-                    device_id: egui::TouchDeviceId(egui::epaint::util::hash(touch.device_id)),
-                    id: egui::TouchId::from(pointer_id),
-                    phase: egui::TouchPhase::Cancel,
-                    pos: pointer_pos,
-                    force: None,
-                });
-                self.on_mouse_button_input(
-                    winit::event::ElementState::Released,
-                    winit::event::MouseButton::Left,
-                );
-            }
-''',
-        "cancel single-finger selection when two-finger scroll begins",
-    )
-
-    # Current upstream already keeps pointer_pos_in_points while a two-finger gesture
-    # is active, so the scrollable canvas remains the hit target. Do not emit PointerGone.
     # The 0.37 egui-winit Git dependency uses its in-app fallback clipboard on Android.
     # Forward CopyText to Android ClipboardManager, and inject a SAF bridge callback for
     # WordCraft's ribbon/context-menu Paste commands.
@@ -352,160 +166,8 @@ def main() -> None:
         "SAF clipboard read bridge",
     )
 
-    # WordApp owns the one-frame request consumed by the Android shell's logic tick.
-    wordapp_lib = source / "crates/ui-egui/src/lib.rs"
-    replace_once(
-        wordapp_lib,
-        "    pub(crate) comment_drafts: panes::CommentDrafts,\n",
-        "    pub(crate) comment_drafts: panes::CommentDrafts,\n"
-        "    /// Android: the canvas surrendered focus to a scroll/draw gesture; the host hides IME.\n"
-        "    pub request_ime_hide: bool,\n",
-        "WordApp IME-hide state",
-    )
-
-    # The new Android IME-hide field is app-wide, so swap_window must explicitly
-    # leave it on the active WordApp rather than destructuring an incomplete pattern.
-    window_ui = source / "crates/ui-egui/src/window_ui.rs"
-    replace_once(
-        window_ui,
-        "            shown_document,\n        } = self;",
-        "            shown_document,\n            request_ime_hide: _,\n        } = self;",
-        "WordApp window-swap IME field",
-    )
-
-    wordapp_app = source / "crates/ui-egui/src/app.rs"
-    replace_once(
-        wordapp_app,
-        "            comment_drafts: Default::default(),\n",
-        "            comment_drafts: Default::default(),\n"
-        "            request_ime_hide: false,\n",
-        "WordApp IME-hide initialization",
-    )
-
-    canvas = source / "crates/ui-egui/src/canvas.rs"
-
-    # A two-finger scroll cancels the first finger pointer touch in egui-winit.
-    # Treat that cancellation as gesture takeover: stop an existing text-selection
-    # drag and do not dispatch pointer editing while the gesture is active.
-    replace_once(
-        canvas,
-        "fn handle_primary_pointer(\n",
-        """fn touch_gesture_active(ui: &Ui) -> bool {
-    ui.input(|i| {
-        i.events.iter().any(|event| matches!(
-            event,
-            egui::Event::Touch { phase: egui::TouchPhase::Cancel, .. }
-        ))
-    })
-}
-
-fn handle_primary_pointer(
-""",
-        "WordCraft two-finger scroll gesture guard",
-    )
-    replace_once(
-        canvas,
-        """    if !middle_gesture && !crate::table_pen::pointer(app, ui, resp, rects, layout, geo.scale) {
-        mouse(app, ui, resp, rects, layout, geo.scale);
-    }""",
-        """    if touch_gesture_active(ui) {
-        // A second finger took over a drag that may already have started text selection.
-        app.canvas.cancel_text_drag();
-    } else if !middle_gesture && !crate::table_pen::pointer(app, ui, resp, rects, layout, geo.scale) {
-        mouse(app, ui, resp, rects, layout, geo.scale);
-    }""",
-        "cancel text selection when two-finger scrolling takes over",
-    )
-
-    # Track a one-frame focus surrender separately from ordinary text-selection drags.
-    replace_once(
-        canvas,
-        "    pub want_focus: bool,\n",
-        "    pub want_focus: bool,\n"
-        "    pub(crate) surrendered_focus: bool,\n",
-        "canvas focus-surrender state",
-    )
-    replace_once(
-        canvas,
-        "            want_focus: true,\n",
-        "            want_focus: true,\n"
-        "            surrendered_focus: false,\n",
-        "canvas focus-surrender initialization",
-    )
-    replace_once(
-        canvas,
-        "    let full = ui.available_rect_before_wrap();\n",
-        "    let full = ui.available_rect_before_wrap();\n"
-        "    app.canvas.surrendered_focus = false;\n",
-        "canvas focus-surrender frame reset",
-    )
-
-    # In v0.15.0 the canvas response is factored into canvas_response(); the older ArtCraft
-    # scrolling patch targeted an inline ui.interact call that no longer exists.
-    replace_once(
-        canvas,
-        "fn canvas_response(ui: &mut Ui, content: Rect, scroll_target: Option<Rect>) -> egui::Response {\n",
-        "fn canvas_response(app: &mut WordApp, ui: &mut Ui, content: Rect, scroll_target: Option<Rect>) -> egui::Response {\n",
-        "canvas response adapter signature",
-    )
-    replace_once(
-        canvas,
-        '    let response = ui.interact(content, egui::Id::unique("wordcraft_canvas"), Sense::click_and_drag());\n',
-        '''    let response = ui.interact(content, egui::Id::unique("wordcraft_canvas"), Sense::click_and_drag());
-    if cfg!(target_os = "android") {
-        let is_scrolling = app.canvas.auto_scroll.blocks_input();
-        let is_drawing = app.canvas.ink.is_some()
-            || app.session.view.draw.mode != wordcraft_engine::cmd::draw::DrawMode::Select
-            || app.canvas.table_tool.is_some();
-        let is_object_drag = app.canvas.obj_drag.is_some() || app.canvas.crop_drag.is_some();
-        let touch_gesture = ui.input(|i| {
-            i.events.iter().any(|event| {
-                matches!(event, egui::Event::Touch { phase: egui::TouchPhase::Cancel, .. })
-            })
-        });
-        let is_text_drag = response.drag_started()
-            && !is_scrolling
-            && !is_drawing
-            && !is_object_drag
-            && !ui.input(|i| i.pointer.button_down(egui::PointerButton::Middle));
-        if touch_gesture || ((is_scrolling || is_drawing || is_object_drag) && !is_text_drag) {
-            response.surrender_focus();
-            app.canvas.surrendered_focus = true;
-            app.request_ime_hide = true;
-        }
-    }
-''',
-        "canvas Android gesture/IME handling",
-    )
-    replace_once(
-        canvas,
-        "        let resp = canvas_response(ui, content, scroll_target);\n",
-        "        let resp = canvas_response(app, ui, content, scroll_target);\n",
-        "canvas response call",
-    )
-
-    # A surrendered canvas must not immediately reacquire focus or ask egui to reopen IME.
-    replace_once(
-        canvas,
-        "    let focus_click = pointer_click || accesskit_click || resp.drag_started();\n",
-        "    let focus_click = !app.canvas.surrendered_focus && (pointer_click || accesskit_click || resp.drag_started());\n",
-        "canvas gesture focus guard",
-    )
-    replace_once(
-        canvas,
-        "    if focus_click || (app.canvas.want_focus && !resp.has_focus()) {\n",
-        "    let want_focus_honored = if cfg!(target_os = \"android\") { false } else { app.canvas.want_focus };\n"
-        "    if focus_click || (want_focus_honored && !resp.has_focus()) {\n",
-        "Android initial-focus behavior",
-    )
-    replace_once(
-        canvas,
-        "    crate::keys::observe_ime(app, ui.ctx(), ime_geometry, ime_interrupt);\n",
-        "    if !app.canvas.surrendered_focus {\n"
-        "        crate::keys::observe_ime(app, ui.ctx(), ime_geometry, ime_interrupt);\n"
-        "    }\n",
-        "canvas IME observation guard",
-    )
+    # ArtCraft's lib/scrolling.sh adds the WordApp/canvas IME-hide state and gesture guards.
+    # Its build-common hook applies those changes to this pinned source checkout.
 
     # SAF results are produced by Android activity callbacks and background URI-copy workers.
     # The native loop may be idle after the picker returns; queueing alone does not request a
@@ -554,19 +216,6 @@ fn handle_primary_pointer(
         "Upstream Android IME and WordCraft SAF wake integration",
     )
     require(
-        egui_winit,
-        (
-            "gesture_touch_positions: Vec<(u64, egui::Pos2)>",
-            "two_finger_scroll_last_centroid: Option<egui::Pos2>",
-            "self.two_finger_scroll_active = true;",
-            "egui::Event::MouseWheel",
-            "egui::TouchPhase::Cancel",
-            "if self.gesture_touch_ids.len() > 1 {",
-            "We deliberately keep `pointer_pos_in_points` so the canvas knows the pointer is over it",
-        ),
-        "Android two-finger touch scrolling",
-    )
-    require(
         common,
         (
             "modifiers.shift || modifiers.alt",
@@ -583,42 +232,46 @@ fn handle_primary_pointer(
         ("pub fn clipboard_text(&self) -> Option<String>", "super::android_clipboard_get(&self.app)"),
         "SAF clipboard bridge",
     )
+    scrolling = builder / "lib/scrolling.sh"
+    android_winit = builder / "vendor/winit/src/platform_impl/android/mod.rs"
     require(
-        wordapp_lib,
-        ("pub request_ime_hide: bool",),
-        "WordApp IME state",
-    )
-    require(
-        window_ui,
-        ("request_ime_hide: _,",),
-        "WordApp window-swap IME field",
-    )
-    require(
-        wordapp_app,
-        ("request_ime_hide: false,",),
-        "WordApp IME initialization",
-    )
-    require(
-        canvas,
+        scrolling,
         (
-            "pub(crate) surrendered_focus: bool",
+            "pub request_ime_hide: bool",
+            "pub surrendered_focus: bool",
             "fn touch_gesture_active(ui: &Ui) -> bool",
             "app.canvas.cancel_text_drag();",
-            "surrendered_focus: false,",
-            "response.surrender_focus();",
-            "app.request_ime_hide = true;",
-            "canvas_response(app, ui, content, scroll_target)",
-            "if !app.canvas.surrendered_focus",
+            "SYNTH_MOMENTUM",
         ),
-        "WordCraft canvas IME integration",
+        "Upstream WordCraft gesture and IME-hide patch",
     )
     require(
-        canvas,
+        android_winit,
         (
-            "fn touch_gesture_active(ui: &Ui) -> bool",
-            "app.canvas.cancel_text_drag();",
+            "fn recognise_touch_gesture(",
+            "GestureStep::Pan(delta)",
+            "update_modifiers(key.meta_state(), callback);",
+            "android_app.enable_motion_axis(Axis::Vscroll);",
         ),
-        "WordCraft two-finger scroll gesture guard",
+        "Upstream Android Winit gesture and keyboard support",
+    )
+    require(
+        common,
+        (
+            'bash "$ROOT/lib/scrolling.sh" "$SRC" "$APP" "$TITLE"',
+            "reset_ime_with_request",
+        ),
+        "ArtCraft source integration",
+    )
+    require(
+        source / "vendor/winit/src/window.rs",
+        ("reset_ime_with_request",),
+        "WordCraft Winit IME reset API",
+    )
+    require(
+        source / "vendor/winit/src/event.rs",
+        ("ImeResetCompleted",),
+        "WordCraft Winit IME reset event",
     )
 
     print(
