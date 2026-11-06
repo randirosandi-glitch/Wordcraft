@@ -262,20 +262,8 @@ def main() -> None:
         "cancel single-finger selection when two-finger scroll begins",
     )
 
-    replace_once(
-        egui_winit,
-        '''            if self.pointer_pos_in_points.is_some() {
-                self.pointer_pos_in_points = None;
-                self.egui_input.events.push(egui::Event::PointerGone);
-            }
-''',
-        '''            if let Some(centroid) = self.two_finger_scroll_last_centroid {
-                self.pointer_pos_in_points = Some(centroid);
-                self.egui_input.events.push(egui::Event::PointerMoved(centroid));
-            }
-''',
-        "keep the scroll hit target under the two-finger centroid",
-    )
+    # Current upstream already keeps pointer_pos_in_points while a two-finger gesture
+    # is active, so the scrollable canvas remains the hit target. Do not emit PointerGone.
     # The 0.37 egui-winit Git dependency uses its in-app fallback clipboard on Android.
     # Forward CopyText to Android ClipboardManager, and inject a SAF bridge callback for
     # WordCraft's ribbon/context-menu Paste commands.
@@ -573,6 +561,8 @@ fn handle_primary_pointer(
             "self.two_finger_scroll_active = true;",
             "egui::Event::MouseWheel",
             "egui::TouchPhase::Cancel",
+            "if self.gesture_touch_ids.len() > 1 {",
+            "We deliberately keep `pointer_pos_in_points` so the canvas knows the pointer is over it",
         ),
         "Android two-finger touch scrolling",
     )
